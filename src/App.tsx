@@ -7,20 +7,25 @@ import FicheStock from './pages/FicheStock';
 import CalendrierPeremption from './pages/CalendrierPeremption';
 import Ruptures from './pages/Ruptures';
 import Commandes from './pages/Commandes';
+import ErrorBoundary from './components/ErrorBoundary';
 
 function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Layout />}>
-        <Route index element={<Dashboard />} />
-        <Route path="catalog" element={<Catalog />} />
-        <Route path="catalog/:categoryName" element={<CategoryProducts />} />
-        <Route path="product/:productId" element={<FicheStock />} />
-        <Route path="commandes" element={<Commandes />} />
-        <Route path="peremptions" element={<CalendrierPeremption />} />
-        <Route path="ruptures" element={<Ruptures />} />
-      </Route>
-    </Routes>
+    <ErrorBoundary>
+      <Routes>
+        <Route path="/" element={<Layout />}>
+          <Route index element={<Dashboard />} />
+          <Route path="fiches-de-stock" element={<FicheStock />} />
+          <Route path="fiches-de-stock/:productId" element={<FicheStock />} />
+          <Route path="catalog" element={<Catalog />} />
+          <Route path="catalog/:categoryName" element={<CategoryProducts />} />
+          <Route path="product/:productId" element={<FicheStock />} />
+          <Route path="commandes" element={<Commandes />} />
+          <Route path="peremptions" element={<CalendrierPeremption />} />
+          <Route path="ruptures" element={<Ruptures />} />
+        </Route>
+      </Routes>
+    </ErrorBoundary>
   );
 }
 

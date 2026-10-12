@@ -9,7 +9,8 @@ import {
   Menu,
   Plus,
   RotateCcw,
-  FileDown
+  FileDown,
+  FileText
 } from 'lucide-react';
 import { useState } from 'react';
 import { clsx } from 'clsx';
@@ -32,7 +33,13 @@ export default function Layout() {
 
   const navigation = [
     { name: 'Tableau de bord', href: '/', icon: LayoutDashboard },
-    { name: 'Catalogue & Stock', href: '/catalog', icon: PackageSearch },
+    { 
+      name: 'Fiches de Stock', 
+      href: '/fiches-de-stock', 
+      icon: FileText,
+      activeMatch: (path: string) => path.startsWith('/fiches-de-stock') || path.startsWith('/product')
+    },
+    { name: 'Catalogue & Catégories', href: '/catalog', icon: PackageSearch },
     { 
       name: 'Bons de Commande', 
       href: '/commandes', 
@@ -82,8 +89,9 @@ export default function Layout() {
           <nav className="flex flex-1 flex-col mt-4 px-3">
             <ul className="space-y-1.5">
               {navigation.map((item) => {
-                const isActive = location.pathname === item.href || 
-                                 (item.href !== '/' && location.pathname.startsWith(item.href));
+                const isActive = item.activeMatch 
+                  ? item.activeMatch(location.pathname)
+                  : location.pathname === item.href || (item.href !== '/' && location.pathname.startsWith(item.href));
                 return (
                   <li key={item.name}>
                     <Link
@@ -186,6 +194,17 @@ export default function Layout() {
           
           <div className="flex items-center gap-2">
             <PWAInstallButton />
+
+            {/* Direct Fiches de Stock Button in Header - Always visible */}
+            <Link
+              to="/fiches-de-stock"
+              className="flex items-center gap-1.5 rounded-lg border border-teal-700 bg-white px-2.5 sm:px-3 py-1.5 text-xs font-bold text-teal-800 hover:bg-teal-50 transition-colors shadow-2xs active:scale-95"
+              title="Consulter les Fiches de Stock officielles"
+            >
+              <FileText className="h-3.5 w-3.5 text-teal-700 shrink-0" />
+              <span className="hidden xs:inline sm:inline">Fiches</span>
+              <span className="hidden sm:inline">Stock</span>
+            </Link>
 
             <button
               type="button"

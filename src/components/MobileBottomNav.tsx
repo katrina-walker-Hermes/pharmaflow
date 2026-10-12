@@ -2,9 +2,9 @@ import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   PackageSearch, 
-  CalendarClock, 
   AlertOctagon, 
-  ClipboardList 
+  ClipboardList,
+  FileText
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useStore } from '../store';
@@ -25,10 +25,16 @@ export default function MobileBottomNav() {
       active: location.pathname === '/',
     },
     {
+      name: 'Fiches',
+      href: '/fiches-de-stock',
+      icon: FileText,
+      active: location.pathname.startsWith('/fiches-de-stock') || location.pathname.startsWith('/product'),
+    },
+    {
       name: 'Catalogue',
       href: '/catalog',
       icon: PackageSearch,
-      active: location.pathname.startsWith('/catalog') || location.pathname.startsWith('/product'),
+      active: location.pathname.startsWith('/catalog'),
     },
     {
       name: 'Commandes',
@@ -37,12 +43,6 @@ export default function MobileBottomNav() {
       active: location.pathname === '/commandes',
       badge: cancelledOrdersCount > 0 ? cancelledOrdersCount : undefined,
       badgeColor: 'bg-rose-500 text-white',
-    },
-    {
-      name: 'Péremptions',
-      href: '/peremptions',
-      icon: CalendarClock,
-      active: location.pathname === '/peremptions',
     },
     {
       name: 'Ruptures',

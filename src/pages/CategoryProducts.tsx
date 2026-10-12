@@ -5,19 +5,26 @@ import { ArrowLeft, AlertCircle, Plus, Search, FileText, FileDown, ChevronRight 
 import { clsx } from 'clsx';
 import AddProductModal from '../components/AddProductModal';
 import ExportPdfModal from '../components/ExportPdfModal';
+import { safeDecode } from '../utils/formatters';
 
 export default function CategoryProducts() {
   const { categoryName } = useParams<{ categoryName: string }>();
-  const decodedCategory = decodeURIComponent(categoryName || '');
+  const decodedCategory = safeDecode(categoryName || '');
   
-  const products = useStore((state) => state.products).filter((p) => p.category === decodedCategory);
+  const allProducts = useStore((state) => state.products);
+  const products = (Array.isArray(allProducts) ? allProducts : []).filter(
+    (p) => p && (p.category || '').trim().toLowerCase() === decodedCategory.trim().toLowerCase()
+  );
+
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
 
-  const filteredProducts = products.filter((p) =>
-    p.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredProducts = products.filter((p) => {
+    if (!p) return false;
+    const name = (p.name || '').toLowerCase();
+    return name.includes(searchTerm.toLowerCase().trim());
+  });
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -32,7 +39,9 @@ export default function CategoryProducts() {
             <ArrowLeft className="h-5 w-5" />
           </Link>
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 leading-tight">{decodedCategory}</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 leading-tight">
+              {decodedCategory || 'Catégorie'}
+            </h1>
             <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
               {products.length} référence{products.length > 1 ? 's' : ''} enregistrée{products.length > 1 ? 's' : ''}
             </p>
@@ -40,6 +49,15 @@ export default function CategoryProducts() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Link
+            to="/fiches-de-stock"
+            className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs active:scale-95"
+            title="Accéder aux fiches de stock"
+          >
+            <FileText className="h-4 w-4 text-teal-700" />
+            <span className="hidden sm:inline">Toutes les</span> Fiches
+          </Link>
+
           <button
             type="button"
             onClick={() => setIsExportPdfOpen(true)}
@@ -77,13 +95,13 @@ export default function CategoryProducts() {
       <div className="block sm:hidden space-y-2.5">
         {filteredProducts.map((product) => {
           const stock = getCurrentStock(product);
-          const isLowStock = stock <= product.stockSecurite;
-          const isBlank = product.transactions.length === 0;
+          const isLowStock = stock <= (product.stockSecurite || 0);
+          const isBlank = !Array.isArray(product.transactions) || product.transactions.length === 0;
 
           return (
             <Link
               key={product.id}
-              to={`/product/${product.id}`}
+              to={`/fiches-de-stock/${encodeURIComponent(product.id)}`}
               className="flex items-center justify-between p-3.5 rounded-2xl border border-slate-200/90 bg-white shadow-2xs active:bg-slate-50 transition-colors"
             >
               <div className="space-y-1 pr-3 flex-1 min-w-0">
@@ -157,15 +175,15 @@ export default function CategoryProducts() {
           <tbody className="divide-y divide-slate-200 bg-white">
             {filteredProducts.map((product) => {
               const stock = getCurrentStock(product);
-              const isLowStock = stock <= product.stockSecurite;
-              const isBlank = product.transactions.length === 0;
+              const isLowStock = stock <= (product.stockSecurite || 0);
+              const isBlank = !Array.isArray(product.transactions) || product.transactions.length === 0;
 
               return (
                 <tr key={product.id} className="hover:bg-slate-50/80 transition-colors">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
                       <Link
-                        to={`/product/${product.id}`}
+                        to={`/fiches-de-stock/${encodeURIComponent(product.id)}`}
                         className={clsx(
                           "font-semibold text-sm hover:underline",
                           product.isImportant ? "text-red-600 hover:text-red-700" : "text-slate-800 hover:text-teal-700"
@@ -219,7 +237,7 @@ export default function CategoryProducts() {
                   </td>
                   <td className="whitespace-nowrap px-6 py-4 text-right text-sm">
                     <Link
-                      to={`/product/${product.id}`}
+                      to={`/fiches-de-stock/${encodeURIComponent(product.id)}`}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-50 hover:border-teal-300 transition-colors"
                     >
                       <FileText className="h-3.5 w-3.5" />
@@ -237,6 +255,7 @@ export default function CategoryProducts() {
         <div className="p-8 text-center text-slate-500 bg-white rounded-2xl border border-slate-200">
           <p className="text-sm">Aucun produit trouvé dans cette catégorie.</p>
           <button
+            type="button"
             onClick={() => setIsAddModalOpen(true)}
             className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-teal-700 px-4 py-2 text-xs font-semibold text-white hover:bg-teal-800"
           >

@@ -96,7 +96,7 @@ export const useStore = create<AppState>()(
             id: uuidv4(),
             date: new Date().toISOString(),
             type: 'entree',
-            quantite: input.initialStock,
+            quantite: Number(input.initialStock) || 0,
             origineDestination: input.initialOrigine || 'Inventaire initial',
             datePeremption: input.initialDatePeremption || undefined,
           });
@@ -107,8 +107,8 @@ export const useStore = create<AppState>()(
           name: input.name.trim(),
           category: input.category.trim(),
           isImportant: input.isImportant,
-          stockSecurite: input.stockSecurite || 0,
-          quantiteMoyenneMensuelle: input.quantiteMoyenneMensuelle || 0,
+          stockSecurite: Number(input.stockSecurite) || 0,
+          quantiteMoyenneMensuelle: Number(input.quantiteMoyenneMensuelle) || 0,
           enRuptureHopital: input.enRuptureHopital || false,
           transactions,
         };
@@ -127,9 +127,10 @@ export const useStore = create<AppState>()(
       addTransaction: (productId, transaction) => set((state) => ({
         products: state.products.map(p => {
           if (p.id === productId) {
+            const currentTransactions = Array.isArray(p.transactions) ? p.transactions : [];
             return {
               ...p,
-              transactions: [...p.transactions, { ...transaction, id: uuidv4() }]
+              transactions: [...currentTransactions, { ...transaction, id: uuidv4() }]
             };
           }
           return p;
@@ -139,9 +140,10 @@ export const useStore = create<AppState>()(
       deleteTransaction: (productId, transactionId) => set((state) => ({
         products: state.products.map(p => {
           if (p.id === productId) {
+            const currentTransactions = Array.isArray(p.transactions) ? p.transactions : [];
             return {
               ...p,
-              transactions: p.transactions.filter(t => t.id !== transactionId)
+              transactions: currentTransactions.filter(t => t.id !== transactionId)
             };
           }
           return p;
@@ -162,7 +164,7 @@ export const useStore = create<AppState>()(
               id: uuidv4(),
               date: new Date().toISOString(),
               type: 'entree',
-              quantite,
+              quantite: Number(quantite) || 0,
               origineDestination: origine || 'Inventaire initial',
               datePeremption: datePeremption || undefined,
             }] : [];
@@ -246,14 +248,15 @@ export const useStore = create<AppState>()(
               }));
 
           itemsToReceive.forEach(rec => {
-            const qty = rec.quantiteRecue;
+            const qty = Number(rec.quantiteRecue) || 0;
             if (qty > 0) {
               updatedProducts = updatedProducts.map(p => {
                 if (p.id === rec.productId) {
+                  const currentTrans = Array.isArray(p.transactions) ? p.transactions : [];
                   return {
                     ...p,
                     transactions: [
-                      ...p.transactions,
+                      ...currentTrans,
                       {
                         id: uuidv4(),
                         date: new Date().toISOString(),
@@ -321,7 +324,20 @@ export const useStore = create<AppState>()(
           currentProducts = newProducts;
         }
 
-        // If orders are empty, seed 1 sample cancelled order and 1 active order for easy immediate demonstration
+        // Ensure all products have transactions array and valid fields
+        currentProducts = currentProducts.map(p => ({
+          ...p,
+          id: p.id || uuidv4(),
+          name: p.name || 'Produit sans nom',
+          category: p.category || 'Général',
+          isImportant: p.isImportant ?? true,
+          stockSecurite: Number(p.stockSecurite) || 0,
+          quantiteMoyenneMensuelle: Number(p.quantiteMoyenneMensuelle) || 0,
+          enRuptureHopital: Boolean(p.enRuptureHopital),
+          transactions: Array.isArray(p.transactions) ? p.transactions : []
+        }));
+
+        // Seed sample orders if empty
         let currentOrders = state.orders;
         if (currentOrders.length === 0 && currentProducts.length > 5) {
           const p1 = currentProducts[0];
@@ -391,11 +407,14 @@ export const useStore = create<AppState>()(
     }),
     {
       name: 'pharmacie-stock-storage',
-      version: 3,
+      version: 4,
       migrate: (persistedState: any, version: number) => {
         if (!persistedState) return persistedState;
         const products = Array.isArray(persistedState.products)
-          ? (version < 2 ? persistedState.products.map((p: any) => ({ ...p, transactions: [] })) : persistedState.products)
+          ? persistedState.products.map((p: any) => ({
+              ...p,
+              transactions: Array.isArray(p.transactions) ? p.transactions : []
+            }))
           : [];
         const orders = Array.isArray(persistedState.orders) ? persistedState.orders : [];
         return {
@@ -408,10 +427,13 @@ export const useStore = create<AppState>()(
   )
 );
 
-export const getCurrentStock = (product: Product): number => {
+export const getCurrentStock = (product?: Product | null): number => {
+  if (!product || !Array.isArray(product.transactions)) return 0;
   return product.transactions.reduce((acc, curr) => {
-    if (curr.type === 'entree') return acc + curr.quantite;
-    if (curr.type === 'sortie') return acc - curr.quantite;
+    if (!curr) return acc;
+    const qty = Number(curr.quantite) || 0;
+    if (curr.type === 'entree') return acc + qty;
+    if (curr.type === 'sortie') return acc - qty;
     return acc;
   }, 0);
 };
