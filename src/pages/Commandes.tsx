@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useStore, PharmacyOrder, OrderItem, OrderStatus, getCurrentStock } from '../store';
+import { useStore, PharmacyOrder, OrderItem, getCurrentStock } from '../store';
 import { 
   ClipboardList, 
   Plus, 
@@ -13,19 +13,23 @@ import {
   Trash2, 
   X, 
   Check, 
-  AlertTriangle,
   PackagePlus,
-  ArrowRight
+  FileDown,
+  Edit3,
+  Save,
+  AlertTriangle,
+  Loader2
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { clsx } from 'clsx';
-import { Link } from 'react-router-dom';
+import { downloadOrderPdf } from '../utils/generateOrderPdf';
 
 export default function Commandes() {
   const orders = useStore((state) => state.orders);
   const products = useStore((state) => state.products);
   const createOrder = useStore((state) => state.createOrder);
   const updateOrder = useStore((state) => state.updateOrder);
+  const updateOrderItems = useStore((state) => state.updateOrderItems);
   const cancelOrder = useStore((state) => state.cancelOrder);
   const resumeCancelledOrder = useStore((state) => state.resumeCancelledOrder);
   const receiveOrder = useStore((state) => state.receiveOrder);
@@ -35,7 +39,16 @@ export default function Commandes() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<PharmacyOrder | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [resumeSuccessMessage, setResumeSuccessMessage] = useState<string | null>(null);
+  const [successBanner, setSuccessBanner] = useState<string | null>(null);
+  const [generatingPdfId, setGeneratingPdfId] = useState<string | null>(null);
+
+  // Edit order items modal/mode
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingItems, setEditingItems] = useState<OrderItem[]>([]);
+  const [editProductSearch, setEditProductSearch] = useState('');
+
+  // Delete confirmation modal state
+  const [orderToDelete, setOrderToDelete] = useState<PharmacyOrder | null>(null);
 
   // New order form state
   const [newOrderDestinataire, setNewOrderDestinataire] = useState('Pharmacie Hospitalière Centrale');
@@ -66,29 +79,78 @@ export default function Commandes() {
   const pendingOrders = orders.filter((o) => o.statut === 'en_cours');
   const deliveredOrders = orders.filter((o) => o.statut === 'livree');
 
+  const triggerSuccessBanner = (msg: string) => {
+    setSuccessBanner(msg);
+    setTimeout(() => {
+      setSuccessBanner(null);
+    }, 4500);
+  };
+
   const handleResume = (orderId: string, orderNumber: string) => {
     resumeCancelledOrder(orderId);
-    setResumeSuccessMessage(`La commande ${orderNumber} a été reprise et réactivée avec succès !`);
+    triggerSuccessBanner(`La commande ${orderNumber} a été reprise et réactivée avec succès !`);
     if (selectedOrder && selectedOrder.id === orderId) {
       setSelectedOrder({ ...selectedOrder, statut: 'en_cours', motifAnnulation: undefined, dateAnnulation: undefined });
     }
-    setTimeout(() => {
-      setResumeSuccessMessage(null);
-    }, 4000);
   };
 
   const handleConfirmCancel = () => {
     if (!cancelModalOrderId) return;
     cancelOrder(cancelModalOrderId, cancelMotif || 'Annulée par le bloc opératoire');
+    const orderNum = orders.find(o => o.id === cancelModalOrderId)?.numeroCommande || '';
     setCancelModalOrderId(null);
     setCancelMotif('');
+    triggerSuccessBanner(`La commande ${orderNum} a été annulée.`);
     if (selectedOrder && selectedOrder.id === cancelModalOrderId) {
       setSelectedOrder({ ...selectedOrder, statut: 'annulee', motifAnnulation: cancelMotif || 'Annulée par le bloc opératoire', dateAnnulation: new Date().toISOString() });
     }
   };
 
+  const handleConfirmDelete = () => {
+    if (!orderToDelete) return;
+    const num = orderToDelete.numeroCommande;
+    deleteOrder(orderToDelete.id);
+    if (selectedOrder?.id === orderToDelete.id) {
+      setSelectedOrder(null);
+      setIsEditMode(false);
+    }
+    setOrderToDelete(null);
+    triggerSuccessBanner(`Le bon de commande ${num} a été supprimé avec succès.`);
+  };
+
+  const handleDownloadPdf = async (order: PharmacyOrder) => {
+    setGeneratingPdfId(order.id);
+    try {
+      await downloadOrderPdf(order);
+      triggerSuccessBanner(`PDF du bon ${order.numeroCommande} généré sur le canevas officiel !`);
+    } catch (err) {
+      console.error('Erreur export PDF:', err);
+      alert('Une erreur est survenue lors de la création du PDF.');
+    } finally {
+      setGeneratingPdfId(null);
+    }
+  };
+
+  const handleStartEdit = (order: PharmacyOrder) => {
+    setEditingItems(order.items.map(it => ({ ...it })));
+    setIsEditMode(true);
+  };
+
+  const handleSaveEditedItems = () => {
+    if (!selectedOrder) return;
+    if (editingItems.length === 0) {
+      alert('Le bon de commande doit contenir au moins un produit.');
+      return;
+    }
+
+    updateOrderItems(selectedOrder.id, editingItems);
+    const updated = { ...selectedOrder, items: editingItems };
+    setSelectedOrder(updated);
+    setIsEditMode(false);
+    triggerSuccessBanner(`Les quantités du bon ${selectedOrder.numeroCommande} ont été mises à jour.`);
+  };
+
   const handleAddAutoItems = () => {
-    // Add all products with stock <= safety stock or in rupture
     const needyProducts = products.filter((p) => {
       const stock = getCurrentStock(p);
       return stock <= p.stockSecurite || p.enRuptureHopital;
@@ -115,7 +177,7 @@ export default function Commandes() {
         productId: item.productId,
         productName: prod ? prod.name : 'Produit inconnu',
         category: prod ? prod.category : 'Général',
-        quantiteDemandee: item.quantiteDemandee,
+        quantiteDemandee: Math.max(1, item.quantiteDemandee),
       };
     });
 
@@ -131,6 +193,7 @@ export default function Commandes() {
     setNewOrderItems([]);
     setNewOrderComments('');
     setActiveTab('en_cours');
+    triggerSuccessBanner(`Le bon de commande a été créé avec succès.`);
   };
 
   const handleOpenReceiveModal = (order: PharmacyOrder) => {
@@ -158,6 +221,7 @@ export default function Commandes() {
     });
 
     receiveOrder(receiveModalOrder.id, receipts);
+    triggerSuccessBanner(`La commande ${receiveModalOrder.numeroCommande} a été réceptionnée. Les stocks ont été incrémentés.`);
     setReceiveModalOrder(null);
     if (selectedOrder && selectedOrder.id === receiveModalOrder.id) {
       setSelectedOrder({ ...selectedOrder, statut: 'livree', dateReception: new Date().toISOString() });
@@ -169,8 +233,8 @@ export default function Commandes() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Bons de Commande & Réapprovisionnement</h1>
-          <p className="text-sm text-slate-600 mt-0.5">
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Bons de Commande & Réapprovisionnement</h1>
+          <p className="text-xs sm:text-sm text-slate-600 mt-0.5">
             Commandes du bloc opératoire auprès de la pharmacie centrale (Centre Hospitalier Sidi Ifni)
           </p>
         </div>
@@ -181,26 +245,26 @@ export default function Commandes() {
             setNewOrderItems([]);
             setIsCreateModalOpen(true);
           }}
-          className="flex items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-teal-800 transition-colors"
+          className="flex items-center gap-2 rounded-xl bg-teal-700 px-4 py-2.5 text-xs sm:text-sm font-semibold text-white shadow-xs hover:bg-teal-800 transition-colors active:scale-95"
         >
           <Plus className="h-4 w-4" />
           Nouveau Bon de Commande
         </button>
       </div>
 
-      {/* Success Banner when an order is resumed */}
-      {resumeSuccessMessage && (
+      {/* Success Notification Banner */}
+      {successBanner && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 flex items-center gap-3 text-emerald-900 shadow-2xs animate-in fade-in duration-200">
           <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
-          <span className="font-semibold text-sm">{resumeSuccessMessage}</span>
+          <span className="font-semibold text-xs sm:text-sm">{successBanner}</span>
         </div>
       )}
 
-      {/* Alert for Cancelled Orders (with quick resume action) */}
+      {/* Alert for Cancelled Orders with Quick Resume Action */}
       {cancelledOrders.length > 0 && (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50/70 p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="rounded-2xl border border-rose-200 bg-rose-50/80 p-4 sm:p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-start gap-3.5">
-            <div className="rounded-xl bg-rose-600 p-2.5 text-white">
+            <div className="rounded-xl bg-rose-600 p-2.5 text-white shrink-0">
               <RotateCcw className="h-5 w-5" />
             </div>
             <div>
@@ -239,11 +303,11 @@ export default function Commandes() {
 
       {/* Tabs & Search */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-3">
-        <div className="flex items-center gap-2 overflow-x-auto">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
           <button
             onClick={() => setActiveTab('all')}
             className={clsx(
-              "px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors",
+              "px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors shrink-0",
               activeTab === 'all'
                 ? "bg-teal-700 text-white shadow-2xs"
                 : "text-slate-600 hover:bg-slate-100"
@@ -255,7 +319,7 @@ export default function Commandes() {
           <button
             onClick={() => setActiveTab('en_cours')}
             className={clsx(
-              "px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5",
+              "px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 shrink-0",
               activeTab === 'en_cours'
                 ? "bg-amber-600 text-white shadow-2xs"
                 : "text-slate-600 hover:bg-slate-100"
@@ -268,7 +332,7 @@ export default function Commandes() {
           <button
             onClick={() => setActiveTab('annulee')}
             className={clsx(
-              "px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5",
+              "px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 shrink-0",
               activeTab === 'annulee'
                 ? "bg-rose-600 text-white shadow-2xs"
                 : "text-slate-600 hover:bg-slate-100"
@@ -281,7 +345,7 @@ export default function Commandes() {
           <button
             onClick={() => setActiveTab('livree')}
             className={clsx(
-              "px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5",
+              "px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 shrink-0",
               activeTab === 'livree'
                 ? "bg-emerald-600 text-white shadow-2xs"
                 : "text-slate-600 hover:bg-slate-100"
@@ -292,11 +356,11 @@ export default function Commandes() {
           </button>
         </div>
 
-        <div className="relative w-full sm:w-64">
+        <div className="relative w-full sm:w-72">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
           <input
             type="text"
-            placeholder="Rechercher par n° ou produit..."
+            placeholder="Rechercher par n° de bon ou produit..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full rounded-lg border border-slate-300 bg-white py-1.5 pl-9 pr-3 text-xs text-slate-800 placeholder-slate-400 focus:border-teal-600 outline-none"
@@ -309,19 +373,19 @@ export default function Commandes() {
         <table className="min-w-full divide-y divide-slate-200">
           <thead className="bg-slate-50">
             <tr>
-              <th scope="col" className="px-6 py-3.5 text-left text-xs font-semibold text-slate-600 uppercase">
+              <th scope="col" className="px-5 py-3.5 text-left text-xs font-semibold text-slate-600 uppercase">
                 N° Bon / Date
               </th>
-              <th scope="col" className="px-6 py-3.5 text-left text-xs font-semibold text-slate-600 uppercase">
+              <th scope="col" className="px-5 py-3.5 text-left text-xs font-semibold text-slate-600 uppercase">
                 Destinataire & Service
               </th>
-              <th scope="col" className="px-6 py-3.5 text-center text-xs font-semibold text-slate-600 uppercase">
+              <th scope="col" className="px-5 py-3.5 text-center text-xs font-semibold text-slate-600 uppercase">
                 Articles
               </th>
-              <th scope="col" className="px-6 py-3.5 text-center text-xs font-semibold text-slate-600 uppercase">
+              <th scope="col" className="px-5 py-3.5 text-center text-xs font-semibold text-slate-600 uppercase">
                 Statut
               </th>
-              <th scope="col" className="px-6 py-3.5 text-right text-xs font-semibold text-slate-600 uppercase">
+              <th scope="col" className="px-5 py-3.5 text-right text-xs font-semibold text-slate-600 uppercase">
                 Actions
               </th>
             </tr>
@@ -329,28 +393,29 @@ export default function Commandes() {
           <tbody className="divide-y divide-slate-200 bg-white">
             {filteredOrders.map((order) => {
               const totalItemsCount = order.items.reduce((s, it) => s + it.quantiteDemandee, 0);
+              const isDownloading = generatingPdfId === order.id;
 
               return (
-                <tr key={order.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap">
+                <tr key={order.id} className="hover:bg-slate-50/80 transition-colors">
+                  <td className="px-5 py-4 whitespace-nowrap">
                     <span className="font-bold text-sm text-slate-900 block">{order.numeroCommande}</span>
                     <span className="text-xs text-slate-500">
                       {format(parseISO(order.dateCreation), 'dd/MM/yyyy à HH:mm')}
                     </span>
                   </td>
 
-                  <td className="px-6 py-4">
+                  <td className="px-5 py-4">
                     <span className="text-xs font-semibold text-slate-800 block">{order.destinataire}</span>
                     <span className="text-[11px] text-slate-500">{order.serviceDemandeur}</span>
                   </td>
 
-                  <td className="px-6 py-4 text-center whitespace-nowrap">
+                  <td className="px-5 py-4 text-center whitespace-nowrap">
                     <span className="inline-flex items-center rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
                       {order.items.length} réf. ({totalItemsCount} unités)
                     </span>
                   </td>
 
-                  <td className="px-6 py-4 text-center whitespace-nowrap">
+                  <td className="px-5 py-4 text-center whitespace-nowrap">
                     {order.statut === 'annulee' ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 border border-rose-200 px-2.5 py-0.5 text-xs font-bold text-rose-700">
                         <AlertOctagon className="h-3 w-3" />
@@ -369,54 +434,87 @@ export default function Commandes() {
                     )}
                   </td>
 
-                  <td className="px-6 py-4 text-right whitespace-nowrap space-x-2">
-                    {/* If Cancelled: Show RESUME BUTTON */}
-                    {order.statut === 'annulee' && (
+                  <td className="px-5 py-4 text-right whitespace-nowrap">
+                    <div className="flex items-center justify-end gap-1.5">
+                      {/* PDF DOWNLOAD BUTTON (OFFICIAL CANEVAS) */}
                       <button
                         type="button"
-                        onClick={() => handleResume(order.id, order.numeroCommande)}
-                        className="inline-flex items-center gap-1 rounded-lg bg-teal-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-800 transition-colors shadow-2xs"
-                        title="Reprendre cette commande annulée pour la réactiver"
+                        disabled={isDownloading}
+                        onClick={() => handleDownloadPdf(order)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-teal-600/30 bg-teal-50 px-2.5 py-1.5 text-xs font-bold text-teal-800 hover:bg-teal-100 transition-colors shadow-2xs disabled:opacity-50"
+                        title="Télécharger le bon au format PDF officiel (Canevas CHP Sidi Ifni)"
                       >
-                        <RotateCcw className="h-3.5 w-3.5" />
-                        Reprendre la commande
+                        {isDownloading ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-teal-700" />
+                        ) : (
+                          <FileDown className="h-3.5 w-3.5 text-teal-700" />
+                        )}
+                        <span className="hidden sm:inline">PDF</span>
                       </button>
-                    )}
 
-                    {/* If In Progress: Show Receive button */}
-                    {order.statut === 'en_cours' && (
-                      <>
+                      {/* If Cancelled: Show RESUME BUTTON */}
+                      {order.statut === 'annulee' && (
                         <button
                           type="button"
-                          onClick={() => handleOpenReceiveModal(order)}
-                          className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors shadow-2xs"
+                          onClick={() => handleResume(order.id, order.numeroCommande)}
+                          className="inline-flex items-center gap-1 rounded-lg bg-teal-700 px-2.5 py-1.5 text-xs font-bold text-white hover:bg-teal-800 transition-colors shadow-2xs"
+                          title="Reprendre cette commande annulée pour la réactiver"
                         >
-                          <Check className="h-3.5 w-3.5" />
-                          Réceptionner
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          <span className="hidden md:inline">Reprendre</span>
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCancelModalOrderId(order.id);
-                            setCancelMotif('');
-                          }}
-                          className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition-colors"
-                        >
-                          Annuler
-                        </button>
-                      </>
-                    )}
+                      )}
 
-                    {/* View Details button */}
-                    <button
-                      type="button"
-                      onClick={() => setSelectedOrder(order)}
-                      className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
-                      title="Consulter les détails du bon"
-                    >
-                      <Eye className="h-3.5 w-3.5" />
-                      Détails
-                    </button>
+                      {/* If In Progress: Show Receive button */}
+                      {order.statut === 'en_cours' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenReceiveModal(order)}
+                            className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors shadow-2xs"
+                            title="Réceptionner la commande (entrée en stock)"
+                          >
+                            <Check className="h-3.5 w-3.5" />
+                            <span className="hidden md:inline">Réception</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCancelModalOrderId(order.id);
+                              setCancelMotif('');
+                            }}
+                            className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition-colors"
+                            title="Annuler temporairement ce bon de commande"
+                          >
+                            Annuler
+                          </button>
+                        </>
+                      )}
+
+                      {/* View / Edit Details button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedOrder(order);
+                          setIsEditMode(false);
+                        }}
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                        title="Consulter et modifier les quantités du bon"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        <span className="hidden sm:inline">Détails</span>
+                      </button>
+
+                      {/* DELETE ORDER BUTTON */}
+                      <button
+                        type="button"
+                        onClick={() => setOrderToDelete(order)}
+                        className="inline-flex items-center p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50 hover:border-rose-200 transition-colors"
+                        title="Supprimer définitivement ce bon de commande"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -512,7 +610,7 @@ export default function Commandes() {
                       placeholder="Ajouter un produit..."
                       value={productSearch}
                       onChange={(e) => setProductSearch(e.target.value)}
-                      className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-slate-800 outline-none"
+                      className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-slate-800 outline-none focus:border-teal-600"
                     />
                     {productSearch && (
                       <div className="absolute z-20 left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg">
@@ -571,7 +669,7 @@ export default function Commandes() {
                                   updated[idx].quantiteDemandee = val;
                                   setNewOrderItems(updated);
                                 }}
-                                className="w-20 rounded border border-slate-300 px-2 py-1 text-right text-xs font-semibold text-slate-900"
+                                className="w-20 rounded border border-slate-300 px-2 py-1 text-right text-xs font-semibold text-slate-900 focus:border-teal-600 outline-none"
                               />
                             </td>
                             <td className="px-4 py-2.5 text-center">
@@ -630,30 +728,56 @@ export default function Commandes() {
         </div>
       )}
 
-      {/* ORDER DETAILS MODAL / PRINT VIEW */}
+      {/* ORDER DETAILS MODAL / QUANTITY MODIFICATION & OFFICIAL CANEVAS PDF */}
       {selectedOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
           <div className="relative w-full max-w-3xl rounded-2xl bg-white shadow-2xl border border-slate-100 my-8 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4">
-              <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-teal-800">
-                  Bon de Commande
-                </span>
-                <h2 className="text-lg font-black text-slate-900">{selectedOrder.numeroCommande}</h2>
+              <div className="flex items-center gap-3">
+                <div className="rounded-xl bg-teal-700 p-2 text-white">
+                  <ClipboardList className="h-5 w-5" />
+                </div>
+                <div>
+                  <span className="text-xs font-bold uppercase tracking-wider text-teal-800">
+                    Bon de Commande Officiel
+                  </span>
+                  <h2 className="text-lg font-black text-slate-900">{selectedOrder.numeroCommande}</h2>
+                </div>
               </div>
+
               <div className="flex items-center gap-2">
+                {/* PDF Download Button with official template */}
+                <button
+                  type="button"
+                  disabled={generatingPdfId === selectedOrder.id}
+                  onClick={() => handleDownloadPdf(selectedOrder)}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-teal-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-800 shadow-2xs transition-colors disabled:opacity-50"
+                  title="Télécharger le document PDF conforme au canevas Sidi Ifni"
+                >
+                  {generatingPdfId === selectedOrder.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <FileDown className="h-3.5 w-3.5" />
+                  )}
+                  <span>Télécharger PDF</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  title="Imprimer"
                 >
                   <Printer className="h-3.5 w-3.5" />
-                  Imprimer
                 </button>
+
                 <button
                   type="button"
-                  onClick={() => setSelectedOrder(null)}
+                  onClick={() => {
+                    setSelectedOrder(null);
+                    setIsEditMode(false);
+                  }}
                   className="rounded-lg p-1.5 text-slate-400 hover:text-slate-700"
                 >
                   <X className="h-5 w-5" />
@@ -713,6 +837,103 @@ export default function Commandes() {
                 </div>
               )}
 
+              {/* ACTION BAR: Quantity Edit Toggle */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-teal-50/70 border border-teal-200/80 rounded-xl p-3">
+                <div className="flex items-center gap-2">
+                  <Edit3 className="h-4 w-4 text-teal-700" />
+                  <span className="text-xs font-bold text-teal-950">
+                    Articles & Quantités commandées ({isEditMode ? editingItems.length : selectedOrder.items.length})
+                  </span>
+                </div>
+
+                {!isEditMode ? (
+                  <button
+                    type="button"
+                    onClick={() => handleStartEdit(selectedOrder)}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-white border border-teal-700 px-3 py-1.5 text-xs font-bold text-teal-800 hover:bg-teal-50 shadow-2xs active:scale-95"
+                  >
+                    <Edit3 className="h-3.5 w-3.5" />
+                    Modifier les quantités du bon
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditMode(false)}
+                      className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-white/80"
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveEditedItems}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-teal-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-800 shadow-2xs active:scale-95"
+                    >
+                      <Save className="h-3.5 w-3.5" />
+                      Enregistrer les modifications
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Search to add products while in edit mode */}
+              {isEditMode && (
+                <div className="relative border border-teal-200 rounded-xl p-3 bg-white space-y-2">
+                  <label className="block text-xs font-bold text-teal-900">
+                    Ajouter un autre médicament au bon :
+                  </label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Rechercher par nom de médicament..."
+                      value={editProductSearch}
+                      onChange={(e) => setEditProductSearch(e.target.value)}
+                      className="w-full rounded-lg border border-slate-300 pl-8 pr-3 py-1.5 text-xs text-slate-800 outline-none focus:border-teal-600"
+                    />
+                  </div>
+
+                  {editProductSearch && (
+                    <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg shadow-md divide-y divide-slate-100 bg-white">
+                      {products
+                        .filter((p) => p.name.toLowerCase().includes(editProductSearch.toLowerCase()))
+                        .slice(0, 6)
+                        .map((prod) => (
+                          <div
+                            key={prod.id}
+                            className="flex items-center justify-between p-2 text-xs hover:bg-teal-50"
+                          >
+                            <div>
+                              <span className="font-semibold text-slate-800">{prod.name}</span>
+                              <span className="text-[10px] text-slate-400 ml-2">{prod.category}</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!editingItems.some((it) => it.productId === prod.id)) {
+                                  setEditingItems([
+                                    ...editingItems,
+                                    {
+                                      productId: prod.id,
+                                      productName: prod.name,
+                                      category: prod.category,
+                                      quantiteDemandee: prod.quantiteMoyenneMensuelle || 10,
+                                    },
+                                  ]);
+                                }
+                                setEditProductSearch('');
+                              }}
+                              className="rounded bg-teal-700 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-teal-800"
+                            >
+                              + Ajouter
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Items Table */}
               <div className="border border-slate-300 rounded-xl overflow-hidden">
                 <table className="min-w-full divide-y divide-slate-200 text-xs">
@@ -722,17 +943,47 @@ export default function Commandes() {
                       <th className="px-4 py-3 text-left">Catégorie</th>
                       <th className="px-4 py-3 text-right">Quantité Demandée</th>
                       <th className="px-4 py-3 text-right">Quantité Reçue</th>
+                      {isEditMode && <th className="px-3 py-3 text-center w-12">Action</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 bg-white">
-                    {selectedOrder.items.map((it) => (
+                    {(!isEditMode ? selectedOrder.items : editingItems).map((it, idx) => (
                       <tr key={it.productId} className="hover:bg-slate-50">
                         <td className="px-4 py-3 font-semibold text-slate-900">{it.productName}</td>
                         <td className="px-4 py-3 text-slate-500">{it.category}</td>
-                        <td className="px-4 py-3 text-right font-bold text-slate-800">{it.quantiteDemandee}</td>
+                        <td className="px-4 py-3 text-right font-bold text-slate-800">
+                          {isEditMode ? (
+                            <input
+                              type="number"
+                              min="1"
+                              value={it.quantiteDemandee}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value) || 1;
+                                const updated = [...editingItems];
+                                updated[idx].quantiteDemandee = val;
+                                setEditingItems(updated);
+                              }}
+                              className="w-20 rounded border border-teal-500 px-2 py-1 text-right text-xs font-bold text-slate-900 bg-teal-50/40 focus:bg-white outline-none"
+                            />
+                          ) : (
+                            <span className="text-sm font-black text-slate-900">{it.quantiteDemandee}</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-right font-bold text-teal-700">
                           {selectedOrder.statut === 'livree' ? (it.quantiteRecue ?? it.quantiteDemandee) : '-'}
                         </td>
+                        {isEditMode && (
+                          <td className="px-3 py-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => setEditingItems(editingItems.filter((_, i) => i !== idx))}
+                              className="text-slate-400 hover:text-rose-600 p-1"
+                              title="Retirer ce produit"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -746,40 +997,102 @@ export default function Commandes() {
                 </div>
               )}
 
-              {/* Footer signature line for official print */}
+              {/* Dual signature lines for official print */}
               <div className="pt-8 border-t border-slate-200 grid grid-cols-2 text-center text-xs text-slate-600">
                 <div>
-                  <p className="font-bold text-slate-800">Visa / Signature du Major du Bloc</p>
+                  <p className="font-bold text-slate-800">L'Infirmier Chef du Bloc</p>
                   <p className="text-[11px] text-slate-400 mt-8">....................................................</p>
                 </div>
                 <div>
-                  <p className="font-bold text-slate-800">Visa du Pharmacien Hospitalier</p>
+                  <p className="font-bold text-slate-800">Le Pharmacien Chef</p>
                   <p className="text-[11px] text-slate-400 mt-8">....................................................</p>
                 </div>
               </div>
 
               {/* Modal footer actions */}
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-                {selectedOrder.statut === 'en_cours' && (
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-200">
+                {/* Delete button from modal */}
+                <button
+                  type="button"
+                  onClick={() => setOrderToDelete(selectedOrder)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 transition-colors"
+                >
+                  <Trash2 className="h-4 w-4 text-rose-600" />
+                  Supprimer ce bon
+                </button>
+
+                <div className="flex items-center gap-2">
+                  {selectedOrder.statut === 'en_cours' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleOpenReceiveModal(selectedOrder);
+                      }}
+                      className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
+                    >
+                      <Check className="h-4 w-4" />
+                      Réceptionner (Entrée en stock)
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
-                      handleOpenReceiveModal(selectedOrder);
+                      setSelectedOrder(null);
+                      setIsEditMode(false);
                     }}
-                    className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
+                    className="rounded-lg px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100"
                   >
-                    <Check className="h-4 w-4" />
-                    Réceptionner la commande (Entrée en stock)
+                    Fermer
                   </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setSelectedOrder(null)}
-                  className="rounded-lg px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100"
-                >
-                  Fermer
-                </button>
+                </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE CONFIRMATION MODAL */}
+      {orderToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-start gap-3.5 mb-4">
+              <div className="rounded-xl bg-rose-100 p-2.5 text-rose-700 shrink-0">
+                <Trash2 className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  Supprimer le bon de commande
+                </h3>
+                <p className="text-xs font-semibold text-rose-700 mt-0.5">
+                  {orderToDelete.numeroCommande}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 mb-4 leading-relaxed">
+              Êtes-vous sûr de vouloir supprimer définitivement ce bon de commande contenant <strong>{orderToDelete.items.length} articles</strong> ?
+              <br />
+              <span className="text-rose-700 font-semibold block mt-1">
+                Cette action est irréversible. Les fiches de stock actuelles ne seront pas altérées.
+              </span>
+            </p>
+
+            <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setOrderToDelete(null)}
+                className="rounded-lg px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="flex items-center gap-1.5 rounded-lg bg-rose-600 px-4 py-2 text-xs font-bold text-white hover:bg-rose-700 shadow-xs"
+              >
+                <Trash2 className="h-4 w-4" />
+                Supprimer définitivement
+              </button>
             </div>
           </div>
         </div>
@@ -859,7 +1172,7 @@ export default function Commandes() {
                                 [it.productId]: { ...inp, qty: parseInt(e.target.value) || 0 },
                               });
                             }}
-                            className="w-20 rounded border border-slate-300 px-2 py-1 text-center font-bold text-slate-900"
+                            className="w-20 rounded border border-slate-300 px-2 py-1 text-center font-bold text-slate-900 outline-none focus:border-teal-600"
                           />
                         </td>
                         <td className="px-3 py-2 text-center">
@@ -872,7 +1185,7 @@ export default function Commandes() {
                                 [it.productId]: { ...inp, expiry: e.target.value },
                               });
                             }}
-                            className="rounded border border-slate-300 px-2 py-1 text-xs"
+                            className="rounded border border-slate-300 px-2 py-1 text-xs outline-none focus:border-teal-600"
                           />
                         </td>
                       </tr>

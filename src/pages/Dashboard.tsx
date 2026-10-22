@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useStore, getCurrentStock } from '../store';
+import { useState, useMemo } from 'react';
+import { useStore, getCurrentStock, Product, Transaction } from '../store';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
   Package, 
@@ -15,12 +15,22 @@ import {
   CheckCircle2, 
   FileDown, 
   FileText,
-  Search
+  Search,
+  ArrowDownLeft,
+  ArrowUpRight,
+  Activity,
+  Calendar,
+  Filter
 } from 'lucide-react';
 import AddProductModal from '../components/AddProductModal';
 import ResetConfirmModal from '../components/ResetConfirmModal';
 import ExportPdfModal from '../components/ExportPdfModal';
+import { format, parseISO } from 'date-fns';
 import { clsx } from 'clsx';
+
+interface EnrichedTransaction extends Transaction {
+  product: Product;
+}
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -33,6 +43,11 @@ export default function Dashboard() {
   const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
   const [resumeSuccessMessage, setResumeSuccessMessage] = useState<string | null>(null);
   const [quickSearchProduct, setQuickSearchProduct] = useState('');
+
+  // Transactions feed filter state
+  const [txTypeFilter, setTxTypeFilter] = useState<'all' | 'entree' | 'sortie'>('all');
+  const [txSearchTerm, setTxSearchTerm] = useState('');
+  const [txDisplayCount, setTxDisplayCount] = useState(10);
 
   // Safe products array
   const safeProducts = Array.isArray(products) ? products : [];
@@ -91,6 +106,45 @@ export default function Dashboard() {
   const filteredQuickProducts = quickSearchProduct.trim()
     ? safeProducts.filter((p) => (p?.name || '').toLowerCase().includes(quickSearchProduct.toLowerCase().trim()))
     : [];
+
+  // Extract and sort all transactions across all products for "Dernières modifications des fiches de poste"
+  const allStockModifications = useMemo(() => {
+    const list: EnrichedTransaction[] = [];
+    safeProducts.forEach((prod) => {
+      if (prod && Array.isArray(prod.transactions)) {
+        prod.transactions.forEach((tx) => {
+          if (tx && tx.id) {
+            list.push({
+              ...tx,
+              product: prod,
+            });
+          }
+        });
+      }
+    });
+
+    // Sort newest first
+    list.sort((a, b) => {
+      const timeA = new Date(a.date).getTime() || 0;
+      const timeB = new Date(b.date).getTime() || 0;
+      return timeB - timeA;
+    });
+
+    return list;
+  }, [safeProducts]);
+
+  // Filtered transactions for the feed
+  const filteredStockModifications = useMemo(() => {
+    return allStockModifications.filter((tx) => {
+      const matchesType = txTypeFilter === 'all' ? true : tx.type === txTypeFilter;
+      const search = txSearchTerm.toLowerCase().trim();
+      const matchesSearch = !search || 
+        tx.product.name.toLowerCase().includes(search) ||
+        tx.product.category.toLowerCase().includes(search) ||
+        (tx.origineDestination && tx.origineDestination.toLowerCase().includes(search));
+      return matchesType && matchesSearch;
+    });
+  }, [allStockModifications, txTypeFilter, txSearchTerm]);
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -269,6 +323,236 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* RUBRIQUE: DERNIÈRES MODIFICATIONS DANS LES FICHES DE POSTE (FICHES DE STOCK) */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="rounded-xl bg-teal-100/80 p-2 text-teal-800">
+              <Activity className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base sm:text-lg font-bold text-slate-900">
+                  Dernières Modifications des Fiches de Poste
+                </h2>
+                <span className="inline-flex items-center rounded-full bg-teal-50 border border-teal-200 px-2 py-0.5 text-[11px] font-bold text-teal-800">
+                  {allStockModifications.length} mouvement{allStockModifications.length > 1 ? 's' : ''}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Historique chronologique des entrées, sorties et ajustements d'inventaire sur les fiches de stock
+              </p>
+            </div>
+          </div>
+
+          <Link
+            to="/fiches-de-stock"
+            className="text-xs font-semibold text-teal-700 hover:text-teal-900 hover:underline flex items-center gap-1 self-start sm:self-auto"
+          >
+            <span>Toutes les fiches</span>
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+
+        {/* Filter controls */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+            <button
+              type="button"
+              onClick={() => setTxTypeFilter('all')}
+              className={clsx(
+                "px-3 py-1.5 rounded-lg font-semibold transition-colors",
+                txTypeFilter === 'all'
+                  ? "bg-slate-800 text-white shadow-2xs"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              )}
+            >
+              Tous ({allStockModifications.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setTxTypeFilter('entree')}
+              className={clsx(
+                "px-3 py-1.5 rounded-lg font-semibold transition-colors flex items-center gap-1",
+                txTypeFilter === 'entree'
+                  ? "bg-emerald-700 text-white shadow-2xs"
+                  : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+              )}
+            >
+              <ArrowDownLeft className="h-3.5 w-3.5" />
+              Entrées ({allStockModifications.filter((t) => t.type === 'entree').length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setTxTypeFilter('sortie')}
+              className={clsx(
+                "px-3 py-1.5 rounded-lg font-semibold transition-colors flex items-center gap-1",
+                txTypeFilter === 'sortie'
+                  ? "bg-amber-700 text-white shadow-2xs"
+                  : "bg-amber-50 text-amber-800 hover:bg-amber-100"
+              )}
+            >
+              <ArrowUpRight className="h-3.5 w-3.5" />
+              Sorties ({allStockModifications.filter((t) => t.type === 'sortie').length})
+            </button>
+          </div>
+
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Filtrer par médicament ou motif..."
+              value={txSearchTerm}
+              onChange={(e) => setTxSearchTerm(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-3 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:border-teal-600 outline-none"
+            />
+          </div>
+        </div>
+
+        {/* List of modifications */}
+        {filteredStockModifications.length > 0 ? (
+          <div className="space-y-2">
+            <div className="overflow-x-auto rounded-xl border border-slate-200/80 bg-white">
+              <table className="min-w-full divide-y divide-slate-100 text-xs">
+                <thead className="bg-slate-50 font-semibold text-slate-600">
+                  <tr>
+                    <th scope="col" className="px-4 py-2.5 text-left">Date & Heure</th>
+                    <th scope="col" className="px-4 py-2.5 text-left">Médicament / Fiche de poste</th>
+                    <th scope="col" className="px-4 py-2.5 text-center">Mouvement</th>
+                    <th scope="col" className="px-4 py-2.5 text-left">Origine / Destination</th>
+                    <th scope="col" className="px-4 py-2.5 text-center">Péremption</th>
+                    <th scope="col" className="px-4 py-2.5 text-right">Solde actuel</th>
+                    <th scope="col" className="px-4 py-2.5 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredStockModifications.slice(0, txDisplayCount).map((tx) => {
+                    const currentStock = getCurrentStock(tx.product);
+                    const formattedDate = (() => {
+                      try {
+                        return format(parseISO(tx.date), 'dd/MM/yyyy à HH:mm');
+                      } catch {
+                        return tx.date;
+                      }
+                    })();
+
+                    return (
+                      <tr key={tx.id} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="px-4 py-2.5 whitespace-nowrap text-slate-500">
+                          {formattedDate}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <Link
+                            to={`/fiches-de-stock/${encodeURIComponent(tx.product.id)}`}
+                            className={clsx(
+                              "font-bold hover:underline block",
+                              tx.product.isImportant ? "text-red-600" : "text-slate-900"
+                            )}
+                          >
+                            {tx.product.name}
+                          </Link>
+                          <span className="text-[10px] text-slate-400">{tx.product.category}</span>
+                        </td>
+                        <td className="px-4 py-2.5 text-center whitespace-nowrap">
+                          {tx.type === 'entree' ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-xs font-bold text-emerald-700">
+                              <ArrowDownLeft className="h-3 w-3" />
+                              + {tx.quantite}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-xs font-bold text-amber-800">
+                              <ArrowUpRight className="h-3 w-3" />
+                              - {tx.quantite}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-700 max-w-xs truncate">
+                          {tx.origineDestination || 'Non spécifié'}
+                        </td>
+                        <td className="px-4 py-2.5 text-center whitespace-nowrap text-slate-500">
+                          {tx.datePeremption ? (
+                            <span className="text-[11px] font-medium text-slate-600">
+                              {(() => {
+                                try {
+                                  return format(parseISO(tx.datePeremption), 'MM/yyyy');
+                                } catch {
+                                  return tx.datePeremption;
+                                }
+                              })()}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300">-</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                          <span className={clsx(
+                            "font-bold text-xs px-2 py-0.5 rounded",
+                            currentStock === 0 ? "bg-rose-50 text-rose-700" : currentStock <= tx.product.stockSecurite ? "bg-amber-50 text-amber-700" : "text-slate-800"
+                          )}>
+                            {currentStock} en stock
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                          <Link
+                            to={`/fiches-de-stock/${encodeURIComponent(tx.product.id)}`}
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-700 hover:text-teal-900 hover:underline"
+                          >
+                            <span>Fiche</span>
+                            <ArrowRight className="h-3 w-3" />
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination / Expand control */}
+            {filteredStockModifications.length > 10 && (
+              <div className="flex justify-center pt-2">
+                {txDisplayCount < filteredStockModifications.length ? (
+                  <button
+                    type="button"
+                    onClick={() => setTxDisplayCount((prev) => prev + 15)}
+                    className="text-xs font-bold text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-200 px-4 py-1.5 rounded-lg transition-colors shadow-2xs"
+                  >
+                    Afficher plus de mouvements ({filteredStockModifications.length - txDisplayCount} restants)
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setTxDisplayCount(10)}
+                    className="text-xs font-semibold text-slate-500 hover:text-slate-800 py-1"
+                  >
+                    Réduire la liste
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-slate-200 p-8 text-center text-slate-500">
+            <Activity className="mx-auto h-8 w-8 text-slate-300 mb-2" />
+            <p className="font-semibold text-slate-700 text-xs sm:text-sm">
+              Aucun mouvement enregistré pour le moment
+            </p>
+            <p className="text-[11px] text-slate-400 mt-1 max-w-md mx-auto">
+              Chaque entrée en stock, sortie pour intervention ou réception de bon de commande effectuée sur une fiche de stock apparaîtra automatiquement ici en temps réel.
+            </p>
+            <div className="mt-3 flex justify-center gap-2">
+              <Link
+                to="/fiches-de-stock"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-teal-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-800"
+              >
+                <FileText className="h-3.5 w-3.5" />
+                Ouvrir les Fiches de Stock
+              </Link>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Inventory Onboarding Banner with PDF Export Button */}

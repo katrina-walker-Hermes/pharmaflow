@@ -75,6 +75,8 @@ interface AppState {
   // Order actions
   createOrder: (order: Omit<PharmacyOrder, 'id' | 'numeroCommande' | 'dateCreation'>) => string;
   updateOrder: (id: string, updates: Partial<PharmacyOrder>) => void;
+  updateOrderItemQuantity: (orderId: string, productId: string, quantiteDemandee: number) => void;
+  updateOrderItems: (orderId: string, items: OrderItem[]) => void;
   cancelOrder: (id: string, motif?: string) => void;
   resumeCancelledOrder: (id: string) => void;
   receiveOrder: (id: string, receipts?: { productId: string; quantiteRecue: number; datePeremption?: string }[]) => void;
@@ -201,6 +203,24 @@ export const useStore = create<AppState>()(
 
       updateOrder: (id, updates) => set((state) => ({
         orders: state.orders.map(o => o.id === id ? { ...o, ...updates } : o)
+      })),
+
+      updateOrderItemQuantity: (orderId, productId, quantiteDemandee) => set((state) => ({
+        orders: state.orders.map((o) => {
+          if (o.id === orderId) {
+            return {
+              ...o,
+              items: o.items.map((it) =>
+                it.productId === productId ? { ...it, quantiteDemandee: Math.max(0, quantiteDemandee) } : it
+              ),
+            };
+          }
+          return o;
+        }),
+      })),
+
+      updateOrderItems: (orderId, items) => set((state) => ({
+        orders: state.orders.map((o) => (o.id === orderId ? { ...o, items } : o)),
       })),
 
       cancelOrder: (id, motif) => set((state) => ({
