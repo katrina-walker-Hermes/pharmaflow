@@ -5,6 +5,7 @@ import { Folder, Plus, Search, RotateCcw, PackageCheck, AlertCircle, FileDown, F
 import AddProductModal from '../components/AddProductModal';
 import ResetConfirmModal from '../components/ResetConfirmModal';
 import ExportPdfModal from '../components/ExportPdfModal';
+import { sortCategories } from '../utils/categoryOrder';
 
 export default function Catalog() {
   const products = useStore((state) => state.products);
@@ -15,8 +16,9 @@ export default function Catalog() {
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
 
-  // Group by category
-  const categories = Array.from(new Set(safeProducts.map((p) => p?.category).filter(Boolean))).sort() as string[];
+  // Group by category using custom clinical order
+  const rawCategories = Array.from(new Set(safeProducts.map((p) => p?.category).filter(Boolean))) as string[];
+  const categories = sortCategories(rawCategories);
 
   // Filter categories and products
   const filteredCategories = categories.filter((category) => {

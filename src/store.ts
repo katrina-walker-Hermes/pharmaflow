@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
 import { seedData } from './data/seed';
+import { normalizeCategoryName } from './utils/categoryOrder';
 
 export interface Transaction {
   id: string;
@@ -98,6 +99,7 @@ interface AppState {
   orders: PharmacyOrder[];
   bonDangerEntries: BonDangerEntry[];
   bonDangerDocuments: BonDangerDocument[];
+  bonDangerInitialized?: boolean;
   
   addProduct: (product: NewProductInput) => void;
   updateProduct: (id: string, updates: Partial<Product>) => void;
@@ -124,6 +126,8 @@ interface AppState {
   deleteBonDangerEntry: (id: string) => void;
   addBonDangerDocument: (doc: Omit<BonDangerDocument, 'id' | 'uploadDate'>) => void;
   deleteBonDangerDocument: (id: string) => void;
+  resetBonDanger: (options?: { resetEntries?: boolean; resetDocuments?: boolean }) => void;
+  restoreSampleBonDanger: () => void;
 }
 
 export const useStore = create<AppState>()(
@@ -133,6 +137,7 @@ export const useStore = create<AppState>()(
       orders: [],
       bonDangerEntries: [],
       bonDangerDocuments: [],
+      bonDangerInitialized: false,
       
       addProduct: (input) => set((state) => {
         const productId = uuidv4();
@@ -152,7 +157,7 @@ export const useStore = create<AppState>()(
         const newProd: Product = {
           id: productId,
           name: input.name.trim(),
-          category: input.category.trim(),
+          category: normalizeCategoryName(input.category),
           isImportant: input.isImportant,
           stockSecurite: Number(input.stockSecurite) || 0,
           quantiteMoyenneMensuelle: Number(input.quantiteMoyenneMensuelle) || 0,
@@ -164,7 +169,14 @@ export const useStore = create<AppState>()(
       }),
       
       updateProduct: (id, updates) => set((state) => ({
-        products: state.products.map(p => p.id === id ? { ...p, ...updates } : p)
+        products: state.products.map(p => {
+          if (p.id !== id) return p;
+          const merged = { ...p, ...updates };
+          if (updates.category) {
+            merged.category = normalizeCategoryName(updates.category);
+          }
+          return merged;
+        })
       })),
       
       deleteProduct: (id) => set((state) => ({
@@ -403,6 +415,64 @@ export const useStore = create<AppState>()(
         bonDangerDocuments: (state.bonDangerDocuments || []).filter((d) => d.id !== id)
       })),
 
+      resetBonDanger: (options = { resetEntries: true, resetDocuments: false }) => set((state) => {
+        const resetEntries = options?.resetEntries !== undefined ? options.resetEntries : true;
+        const resetDocuments = options?.resetDocuments !== undefined ? options.resetDocuments : false;
+        return {
+          bonDangerEntries: resetEntries ? [] : (state.bonDangerEntries || []),
+          bonDangerDocuments: resetDocuments ? [] : (state.bonDangerDocuments || []),
+          bonDangerInitialized: true
+        };
+      }),
+
+      restoreSampleBonDanger: () => set(() => {
+        const today = new Date().toISOString().split('T')[0];
+        const yesterday = new Date(Date.now() - 24 * 3600 * 1000).toISOString().split('T')[0];
+        const twoDaysAgo = new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString().split('T')[0];
+
+        return {
+          bonDangerInitialized: true,
+          bonDangerEntries: [
+            {
+              id: uuidv4(),
+              productName: 'Fentanyl 100 µg',
+              lotNumber: 'FTN-2025-A12',
+              quantite: 5,
+              quantiteVideRecu: 5,
+              nomIAR: 'IAR EL ALAOUI Mohamed',
+              date: twoDaysAgo,
+              heure: '08:30',
+              salle: 'Salle 1 (Chirurgie Générale)',
+              observations: 'Conforme - 5 ampoules vides restituées et vérifiées'
+            },
+            {
+              id: uuidv4(),
+              productName: 'Fentanyl 500 µg',
+              lotNumber: 'FTN-500-B04',
+              quantite: 2,
+              quantiteVideRecu: 2,
+              nomIAR: 'IAR BENALI Fatima',
+              date: yesterday,
+              heure: '10:15',
+              salle: 'Salle 2 (Traumatologie)',
+              observations: 'Conforme - Restitution totale'
+            },
+            {
+              id: uuidv4(),
+              productName: 'Fentanyl 100 µg',
+              lotNumber: 'FTN-2025-A12',
+              quantite: 4,
+              quantiteVideRecu: 2,
+              nomIAR: 'IAR TAZI Rachid',
+              date: today,
+              heure: '09:00',
+              salle: 'Salle 1 (Urgences Bloc)',
+              observations: 'Intervention en cours - 2 ampoules vides en attente de restitution'
+            }
+          ]
+        };
+      }),
+
       seedDatabase: () => set((state) => {
         let currentProducts = state.products;
 
@@ -430,7 +500,7 @@ export const useStore = create<AppState>()(
           ...p,
           id: p.id || uuidv4(),
           name: p.name || 'Produit sans nom',
-          category: p.category || 'Général',
+          category: normalizeCategoryName(p.category || 'Général'),
           isImportant: p.isImportant ?? true,
           stockSecurite: Number(p.stockSecurite) || 0,
           quantiteMoyenneMensuelle: Number(p.quantiteMoyenneMensuelle) || 0,
@@ -500,9 +570,9 @@ export const useStore = create<AppState>()(
           ];
         }
 
-        // Seed initial Bon Danger records if empty
+        // Seed initial Bon Danger records only if not already initialized
         let currentBonDanger = state.bonDangerEntries;
-        if (!currentBonDanger || currentBonDanger.length === 0) {
+        if (!state.bonDangerInitialized && (!currentBonDanger || currentBonDanger.length === 0)) {
           const today = new Date().toISOString().split('T')[0];
           const yesterday = new Date(Date.now() - 24 * 3600 * 1000).toISOString().split('T')[0];
           const twoDaysAgo = new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString().split('T')[0];
@@ -550,32 +620,63 @@ export const useStore = create<AppState>()(
         return { 
           products: currentProducts,
           orders: currentOrders,
-          bonDangerEntries: currentBonDanger,
-          bonDangerDocuments: state.bonDangerDocuments || []
+          bonDangerEntries: currentBonDanger || [],
+          bonDangerDocuments: state.bonDangerDocuments || [],
+          bonDangerInitialized: true
         };
       })
     }),
     {
       name: 'pharmacie-stock-storage',
-      version: 5,
+      version: 7,
       migrate: (persistedState: any, version: number) => {
         if (!persistedState) return persistedState;
         const products = Array.isArray(persistedState.products)
           ? persistedState.products.map((p: any) => ({
               ...p,
+              category: normalizeCategoryName(p.category || 'Général'),
               transactions: Array.isArray(p.transactions) ? p.transactions : []
             }))
           : [];
-        const orders = Array.isArray(persistedState.orders) ? persistedState.orders : [];
+        const orders = Array.isArray(persistedState.orders)
+          ? persistedState.orders.map((o: any) => ({
+              ...o,
+              items: Array.isArray(o.items)
+                ? o.items.map((it: any) => ({
+                    ...it,
+                    category: normalizeCategoryName(it.category || 'Général')
+                  }))
+                : []
+            }))
+          : [];
         const bonDangerEntries = Array.isArray(persistedState.bonDangerEntries) ? persistedState.bonDangerEntries : [];
         const bonDangerDocuments = Array.isArray(persistedState.bonDangerDocuments) ? persistedState.bonDangerDocuments : [];
+        const bonDangerInitialized = Boolean(persistedState.bonDangerInitialized);
         return {
           ...persistedState,
           products,
           orders,
           bonDangerEntries,
-          bonDangerDocuments
+          bonDangerDocuments,
+          bonDangerInitialized
         } as AppState;
+      },
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        if (Array.isArray(state.products)) {
+          let modified = false;
+          const updated = state.products.map((p) => {
+            const canonical = normalizeCategoryName(p.category);
+            if (p.category !== canonical) {
+              modified = true;
+              return { ...p, category: canonical };
+            }
+            return p;
+          });
+          if (modified) {
+            useStore.setState({ products: updated });
+          }
+        }
       }
     }
   )

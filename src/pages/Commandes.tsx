@@ -23,6 +23,7 @@ import {
 import { format, parseISO } from 'date-fns';
 import { clsx } from 'clsx';
 import { downloadOrderPdf } from '../utils/generateOrderPdf';
+import { sortProductsByCategoryAndName } from '../utils/categoryOrder';
 
 export default function Commandes() {
   const orders = useStore((state) => state.orders);
@@ -143,8 +144,12 @@ export default function Commandes() {
       return;
     }
 
-    updateOrderItems(selectedOrder.id, editingItems);
-    const updated = { ...selectedOrder, items: editingItems };
+    const sorted = sortProductsByCategoryAndName(
+      editingItems.map((it) => ({ ...it, name: it.productName }))
+    ).map((it) => ({ ...it, productName: it.name }));
+
+    updateOrderItems(selectedOrder.id, sorted);
+    const updated = { ...selectedOrder, items: sorted };
     setSelectedOrder(updated);
     setIsEditMode(false);
     triggerSuccessBanner(`Les quantités du bon ${selectedOrder.numeroCommande} ont été mises à jour.`);
@@ -156,7 +161,9 @@ export default function Commandes() {
       return stock <= p.stockSecurite || p.enRuptureHopital;
     });
 
-    const newItems = needyProducts.map((p) => {
+    const sortedNeedy = sortProductsByCategoryAndName(needyProducts);
+
+    const newItems = sortedNeedy.map((p) => {
       const neededQty = Math.max(p.quantiteMoyenneMensuelle || p.stockSecurite * 2 || 10, 5);
       return { productId: p.id, quantiteDemandee: neededQty };
     });
@@ -171,7 +178,7 @@ export default function Commandes() {
       return;
     }
 
-    const items: OrderItem[] = newOrderItems.map((item) => {
+    const mappedItems: OrderItem[] = newOrderItems.map((item) => {
       const prod = products.find((p) => p.id === item.productId);
       return {
         productId: item.productId,
@@ -180,6 +187,10 @@ export default function Commandes() {
         quantiteDemandee: Math.max(1, item.quantiteDemandee),
       };
     });
+
+    const items: OrderItem[] = sortProductsByCategoryAndName(
+      mappedItems.map((it) => ({ ...it, name: it.productName }))
+    ).map((it) => ({ ...it, productName: it.name }));
 
     const newId = createOrder({
       serviceDemandeur: newOrderService,

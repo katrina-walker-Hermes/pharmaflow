@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useStore, getCurrentStock } from '../store';
 import { FileDown, X, Check, Filter, Calendar, User, Printer, AlertTriangle } from 'lucide-react';
 import { generateInventoryPdf } from '../utils/exportPdf';
+import { sortCategories } from '../utils/categoryOrder';
 
 interface ExportPdfModalProps {
   isOpen: boolean;
@@ -16,7 +17,7 @@ const MONTHS = [
 
 export default function ExportPdfModal({ isOpen, onClose, defaultCategory }: ExportPdfModalProps) {
   const products = useStore((state) => state.products);
-  const categories = Array.from(new Set(products.map((p) => p.category))).sort();
+  const categories = sortCategories(Array.from(new Set(products.map((p) => p.category))));
 
   const currentMonthIdx = new Date().getMonth();
   const currentYear = new Date().getFullYear();

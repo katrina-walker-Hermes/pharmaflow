@@ -2,13 +2,14 @@ import { useStore, getCurrentStock } from '../store';
 import { Link } from 'react-router-dom';
 import { AlertOctagon, AlertTriangle, ArrowLeft, FileText } from 'lucide-react';
 import { clsx } from 'clsx';
+import { sortProductsByCategoryAndName } from '../utils/categoryOrder';
 
 export default function Ruptures() {
   const products = useStore((state) => state.products);
   const safeProducts = Array.isArray(products) ? products : [];
 
-  const rupturesHopital = safeProducts.filter((p) => p && p.enRuptureHopital);
-  const stockCritique = safeProducts.filter((p) => p && !p.enRuptureHopital && getCurrentStock(p) <= 0);
+  const rupturesHopital = sortProductsByCategoryAndName(safeProducts.filter((p) => p && p.enRuptureHopital));
+  const stockCritique = sortProductsByCategoryAndName(safeProducts.filter((p) => p && !p.enRuptureHopital && getCurrentStock(p) <= 0));
 
   return (
     <div className="space-y-6">

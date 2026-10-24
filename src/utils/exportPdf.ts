@@ -3,6 +3,7 @@ import autoTable from 'jspdf-autotable';
 import { Product, getCurrentStock } from '../store';
 import { format, parseISO } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { sortProductsByCategoryAndName } from './categoryOrder';
 
 export interface PdfExportOptions {
   monthName: string;
@@ -33,13 +34,8 @@ export function generateInventoryPdf(products: Product[], options: PdfExportOpti
     });
   }
 
-  // Sort by Category, then product name
-  filtered.sort((a, b) => {
-    if (a.category !== b.category) {
-      return a.category.localeCompare(b.category);
-    }
-    return a.name.localeCompare(b.name);
-  });
+  // Sort by Category in clinical order, then product name in alphabetical order
+  filtered = sortProductsByCategoryAndName(filtered);
 
   // Compute key statistics
   const totalRefs = products.length;

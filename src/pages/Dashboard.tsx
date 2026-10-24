@@ -28,6 +28,7 @@ import ResetConfirmModal from '../components/ResetConfirmModal';
 import ExportPdfModal from '../components/ExportPdfModal';
 import { format, parseISO } from 'date-fns';
 import { clsx } from 'clsx';
+import { sortProductsByCategoryAndName } from '../utils/categoryOrder';
 
 interface EnrichedTransaction extends Transaction {
   product: Product;
@@ -116,7 +117,9 @@ export default function Dashboard() {
   };
 
   const filteredQuickProducts = quickSearchProduct.trim()
-    ? safeProducts.filter((p) => (p?.name || '').toLowerCase().includes(quickSearchProduct.toLowerCase().trim()))
+    ? sortProductsByCategoryAndName(
+        safeProducts.filter((p) => (p?.name || '').toLowerCase().includes(quickSearchProduct.toLowerCase().trim()))
+      )
     : [];
 
   // Extract and sort all transactions across all products for "Dernières modifications des fiches de poste"

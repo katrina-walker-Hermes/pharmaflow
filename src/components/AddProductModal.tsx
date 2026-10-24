@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useStore } from '../store';
 import { X, Plus, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { clsx } from 'clsx';
+import { ORDERED_CATEGORIES, sortCategories } from '../utils/categoryOrder';
 
 interface AddProductModalProps {
   isOpen: boolean;
@@ -19,8 +20,9 @@ export default function AddProductModal({
   const products = useStore((state) => state.products);
   const addProduct = useStore((state) => state.addProduct);
 
-  // List existing unique categories sorted
-  const existingCategories = Array.from(new Set(products.map((p) => p.category))).sort();
+  // List categories ordered by the clinical sequence, with the 15 standard categories readily available
+  const existingSet = new Set<string>([...ORDERED_CATEGORIES, ...products.map((p) => p.category).filter(Boolean)]);
+  const existingCategories = sortCategories(Array.from(existingSet));
 
   const [name, setName] = useState('');
   const [selectedCategory, setSelectedCategory] = useState(defaultCategory || (existingCategories[0] || ''));

@@ -3,6 +3,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { PharmacyOrder } from '../store';
 import { format, parseISO } from 'date-fns';
+import { sortProductsByCategoryAndName } from './categoryOrder';
 
 /**
  * Downloads the Purchase Order PDF using the official Centre Hospitalier Provincial
@@ -34,7 +35,17 @@ export async function downloadOrderPdf(order: PharmacyOrder): Promise<void> {
     const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
     const ROWS_PER_PAGE = 27;
-    const items = order.items || [];
+    // Sort items by custom clinical category sequence, then alphabetically by product name
+    const sortedRawItems = sortProductsByCategoryAndName(
+      (order.items || []).map((it) => ({
+        ...it,
+        name: it.productName,
+      }))
+    );
+    const items = sortedRawItems.map((it) => ({
+      ...it,
+      productName: it.name,
+    }));
     const totalPagesNeeded = Math.max(1, Math.ceil(items.length / ROWS_PER_PAGE));
 
     // If more than 1 page is needed, copy template pages
@@ -172,9 +183,16 @@ function fallbackGenerateOrderPdf(order: PharmacyOrder, formattedDate: string) {
   doc.text(`Service : ${order.serviceDemandeur || 'Bloc Opératoire'}`, 85, 160);
   doc.text(`Réf : ${order.numeroCommande}`, 516, 145, { align: 'right' });
 
-  const tableData = (order.items || []).map((it) => [
+  const sortedItems = sortProductsByCategoryAndName(
+    (order.items || []).map((it) => ({
+      ...it,
+      name: it.productName,
+    }))
+  );
+
+  const tableData = sortedItems.map((it) => [
     it.category || 'Général',
-    it.productName,
+    it.name,
     String(it.quantiteDemandee),
   ]);
 

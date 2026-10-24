@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { safeDecode, safeFormatDate, safeTimestamp } from '../utils/formatters';
+import { sortCategories, sortProductsByCategoryAndName } from '../utils/categoryOrder';
 
 export default function FicheStock() {
   const { productId } = useParams<{ productId: string }>();
@@ -38,17 +39,23 @@ export default function FicheStock() {
   const [selectorCategory, setSelectorCategory] = useState<string>('all');
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
-  // Categories list
+  // Categories list in clinical sequence
   const allCategories = useMemo(() => {
     if (!Array.isArray(products)) return [];
     const cats = new Set<string>();
     products.forEach((p) => {
       if (p && p.category) cats.add(p.category);
     });
-    return Array.from(cats).sort();
+    return sortCategories(Array.from(cats));
   }, [products]);
 
-  // Find the requested product or fallback gracefully to the first product
+  // Master product list sorted by clinical category order, then alphabetical by name
+  const sortedProducts = useMemo(() => {
+    if (!Array.isArray(products)) return [];
+    return sortProductsByCategoryAndName(products);
+  }, [products]);
+
+  // Find the requested product or fallback gracefully to the first product in custom order
   const activeProduct = useMemo<Product | undefined>(() => {
     if (!products || products.length === 0) return undefined;
 
@@ -74,14 +81,14 @@ export default function FicheStock() {
       if (found) return found;
     }
 
-    // Default to the first product in the database
-    return products[0];
-  }, [products, productId]);
+    // Default to the first product in the database according to clinical order
+    return sortedProducts[0] || products[0];
+  }, [products, sortedProducts, productId]);
 
   // Filtered products for quick search drawer / dropdown
   const filteredProductsForSelector = useMemo(() => {
-    if (!Array.isArray(products)) return [];
-    return products.filter((p) => {
+    if (!Array.isArray(sortedProducts)) return [];
+    return sortedProducts.filter((p) => {
       if (!p) return false;
       const matchesCat = selectorCategory === 'all' || p.category === selectorCategory;
       const pName = (p.name || '').toLowerCase();
@@ -89,7 +96,7 @@ export default function FicheStock() {
       const matchesSearch = !s || pName.includes(s);
       return matchesCat && matchesSearch;
     });
-  }, [products, selectorCategory, selectorSearch]);
+  }, [sortedProducts, selectorCategory, selectorSearch]);
 
   // Mode: entry, exit, initial inventory, or edit
   const [activeAction, setActiveAction] = useState<'entree' | 'sortie' | 'inventaire' | 'edit' | null>(null);
@@ -298,10 +305,10 @@ export default function FicheStock() {
       return timeA - timeB;
     })[0];
 
-  // Navigation: previous / next product
-  const currentIndex = products.findIndex((p) => p.id === activeProduct.id);
-  const prevProduct = currentIndex > 0 ? products[currentIndex - 1] : undefined;
-  const nextProduct = currentIndex >= 0 && currentIndex < products.length - 1 ? products[currentIndex + 1] : undefined;
+  // Navigation: previous / next product according to clinical sequence
+  const currentIndex = sortedProducts.findIndex((p) => p.id === activeProduct.id);
+  const prevProduct = currentIndex > 0 ? sortedProducts[currentIndex - 1] : undefined;
+  const nextProduct = currentIndex >= 0 && currentIndex < sortedProducts.length - 1 ? sortedProducts[currentIndex + 1] : undefined;
 
   const navigateToProduct = (prod: Product) => {
     if (!prod) return;

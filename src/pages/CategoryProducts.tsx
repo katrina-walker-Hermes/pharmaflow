@@ -6,15 +6,25 @@ import { clsx } from 'clsx';
 import AddProductModal from '../components/AddProductModal';
 import ExportPdfModal from '../components/ExportPdfModal';
 import { safeDecode } from '../utils/formatters';
+import { sortProductsAlphabetically, normalizeCategoryName } from '../utils/categoryOrder';
 
 export default function CategoryProducts() {
   const { categoryName } = useParams<{ categoryName: string }>();
   const decodedCategory = safeDecode(categoryName || '');
+  const normalizedRequestedCat = normalizeCategoryName(decodedCategory);
   
   const allProducts = useStore((state) => state.products);
-  const products = (Array.isArray(allProducts) ? allProducts : []).filter(
-    (p) => p && (p.category || '').trim().toLowerCase() === decodedCategory.trim().toLowerCase()
-  );
+  const rawProducts = (Array.isArray(allProducts) ? allProducts : []).filter((p) => {
+    if (!p) return false;
+    const cat = p.category || '';
+    return (
+      cat.trim().toLowerCase() === decodedCategory.trim().toLowerCase() ||
+      normalizeCategoryName(cat).toLowerCase() === normalizedRequestedCat.toLowerCase()
+    );
+  });
+
+  // Strict alphabetical order of products in this category
+  const products = sortProductsAlphabetically(rawProducts);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);

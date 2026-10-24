@@ -21,7 +21,8 @@ import {
   Edit2,
   Clock,
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  RotateCcw
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { format } from 'date-fns';
@@ -34,6 +35,8 @@ export default function LeBonDanger() {
   const deleteBonDangerEntry = useStore((state) => state.deleteBonDangerEntry);
   const addBonDangerDocument = useStore((state) => state.addBonDangerDocument);
   const deleteBonDangerDocument = useStore((state) => state.deleteBonDangerDocument);
+  const resetBonDanger = useStore((state) => state.resetBonDanger);
+  const restoreSampleBonDanger = useStore((state) => state.restoreSampleBonDanger);
 
   // Active view tab: 'registre' (table) or 'documents' (scanned physical orders)
   const [activeTab, setActiveTab] = useState<'registre' | 'documents'>('registre');
@@ -50,6 +53,12 @@ export default function LeBonDanger() {
   const [previewDoc, setPreviewDoc] = useState<BonDangerDocument | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deleteDocConfirmId, setDeleteDocConfirmId] = useState<string | null>(null);
+
+  // Reset Modal state
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [resetScope, setResetScope] = useState<'entries_only' | 'all'>('entries_only');
+  const [resetConfirmed, setResetConfirmed] = useState(false);
+  const [resetSuccessMessage, setResetSuccessMessage] = useState<string | null>(null);
 
   // Form State for Entry
   const [formProductName, setFormProductName] = useState<'Fentanyl 100 µg' | 'Fentanyl 500 µg'>('Fentanyl 100 µg');
@@ -312,6 +321,66 @@ export default function LeBonDanger() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
   };
 
+  // Export Bon Danger records to CSV
+  const exportBonDangerCSV = () => {
+    if (bonDangerEntries.length === 0) return;
+    const headers = [
+      'Date',
+      'Heure',
+      'Produit',
+      'N° Lot',
+      'Quantite Delivree',
+      'Quantite Vide Recu',
+      'Nom IAR',
+      'Salle',
+      'Observations'
+    ];
+
+    const rows = bonDangerEntries.map(e => [
+      `"${e.date}"`,
+      `"${e.heure || ''}"`,
+      `"${e.productName}"`,
+      `"${e.lotNumber}"`,
+      e.quantite,
+      e.quantiteVideRecu,
+      `"${e.nomIAR}"`,
+      `"${e.salle || ''}"`,
+      `"${(e.observations || '').replace(/"/g, '""')}"`
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map(r => r.join(';'))].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Le_Bon_Danger_Fentanyl_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // Execute Reset
+  const handleExecuteReset = () => {
+    const isAll = resetScope === 'all';
+    resetBonDanger({
+      resetEntries: true,
+      resetDocuments: isAll
+    });
+
+    setIsResetModalOpen(false);
+    setResetConfirmed(false);
+    setResetSuccessMessage(
+      isAll 
+        ? 'Le Bon Danger (mouvements et bons physiques scannés) a été réinitialisé à zéro avec succès.' 
+        : 'Le registre des mouvements du Bon Danger a été remis à zéro avec succès (les documents scannés ont été conservés).'
+    );
+
+    setTimeout(() => {
+      setResetSuccessMessage(null);
+    }, 6000);
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Warning Banner: Stupéfiant Tableau B */}
@@ -340,7 +409,7 @@ export default function LeBonDanger() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0 self-start md:self-center">
+          <div className="flex items-center gap-2 shrink-0 self-start md:self-center flex-wrap">
             <button
               type="button"
               onClick={openNewEntryModal}
@@ -361,9 +430,39 @@ export default function LeBonDanger() {
               <Upload className="h-4 w-4 text-rose-600" />
               Téléverser Bon Scanné
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsResetModalOpen(true);
+                setResetConfirmed(false);
+                setResetScope('entries_only');
+              }}
+              className="flex items-center gap-2 rounded-xl bg-rose-100 hover:bg-rose-200/80 border border-rose-300 text-rose-950 px-3.5 py-2.5 text-xs font-bold shadow-2xs active:scale-95 transition-all"
+              title="Remise à zéro du registre Bon Danger"
+            >
+              <RotateCcw className="h-4 w-4 text-rose-700" />
+              Mise à 0 du Bon Danger
+            </button>
           </div>
         </div>
       </div>
+
+      {/* Success notification banner after reset */}
+      {resetSuccessMessage && (
+        <div className="flex items-center justify-between rounded-xl bg-emerald-50 border border-emerald-300 p-3.5 text-emerald-950 shadow-xs animate-in fade-in">
+          <div className="flex items-center gap-2.5">
+            <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+            <span className="text-xs sm:text-sm font-semibold">{resetSuccessMessage}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setResetSuccessMessage(null)}
+            className="p-1 text-emerald-700 hover:text-emerald-950 rounded-lg hover:bg-emerald-100"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {/* KPI Cards / Reconciliation Overview */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -594,25 +693,38 @@ export default function LeBonDanger() {
               </select>
             </div>
 
-            {/* Search */}
-            <div className="relative min-w-[240px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Rechercher par IAR, lot, salle..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 py-1.5 text-xs text-slate-800 placeholder:text-slate-400 outline-none focus:bg-white focus:border-rose-500"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
+            {/* Search and CSV export */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="relative min-w-[220px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Rechercher par IAR, lot, salle..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 py-1.5 text-xs text-slate-800 placeholder:text-slate-400 outline-none focus:bg-white focus:border-rose-500"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={exportBonDangerCSV}
+                disabled={bonDangerEntries.length === 0}
+                className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs transition-all"
+                title="Exporter le registre au format CSV"
+              >
+                <FileDown className="h-4 w-4 text-slate-500" />
+                <span>Exporter CSV</span>
+              </button>
             </div>
           </div>
 
@@ -633,12 +745,46 @@ export default function LeBonDanger() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
-                  {filteredEntries.length === 0 ? (
+                  {bonDangerEntries.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-12 px-4 text-center">
+                        <div className="max-w-md mx-auto space-y-3">
+                          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 shadow-inner">
+                            <RotateCcw className="h-7 w-7" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-slate-900 text-sm">Le registre "Le Bon Danger" est actuellement à 0</h4>
+                            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                              Aucun mouvement de Fentanyl n'est consigné dans ce registre (remis à zéro). Les compteurs de délivrance et de restitution de vides sont à 0.
+                            </p>
+                          </div>
+                          <div className="flex items-center justify-center gap-2 pt-2 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={openNewEntryModal}
+                              className="inline-flex items-center gap-1.5 rounded-xl bg-rose-700 hover:bg-rose-800 text-white text-xs font-bold px-3.5 py-2 shadow-xs transition-all"
+                            >
+                              <Plus className="h-4 w-4" />
+                              Nouveau Mouvement
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => restoreSampleBonDanger()}
+                              className="inline-flex items-center gap-1.5 rounded-xl bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-semibold px-3 py-2 shadow-2xs transition-all"
+                            >
+                              <Sparkles className="h-4 w-4 text-rose-600" />
+                              Restaurer données témoins d'exemple
+                            </button>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : filteredEntries.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="py-12 text-center text-slate-500">
                         <ShieldAlert className="h-8 w-8 text-slate-300 mx-auto mb-2" />
-                        <p className="font-semibold">Aucun enregistrement ne correspond aux filtres.</p>
-                        <p className="text-[11px] text-slate-400 mt-1">Cliquez sur "Nouveau Mouvement" pour consigner une délivrance de Fentanyl.</p>
+                        <p className="font-semibold">Aucun enregistrement ne correspond aux critères de filtre.</p>
+                        <p className="text-[11px] text-slate-400 mt-1">Modifiez vos critères de recherche ou réinitialisez les filtres.</p>
                       </td>
                     </tr>
                   ) : (
@@ -1496,6 +1642,194 @@ export default function LeBonDanger() {
                 className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs"
               >
                 Supprimer le document
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: Mise à 0 du Bon Danger (Fentanyl) */}
+      {isResetModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/70 backdrop-blur-xs">
+          <div className="relative w-full max-w-lg rounded-3xl bg-white p-5 sm:p-6 shadow-2xl border border-rose-200 animate-in fade-in zoom-in-95 duration-200 overflow-hidden">
+            {/* Top Accent Strip */}
+            <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-rose-500 via-amber-500 to-rose-600" />
+
+            {/* Modal Header */}
+            <div className="flex items-start justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-2xl bg-rose-100 text-rose-700 shadow-inner shrink-0">
+                  <RotateCcw className="h-6 w-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black uppercase tracking-wider bg-rose-100 text-rose-800 px-2 py-0.5 rounded">
+                      Réglementation Stupéfiants
+                    </span>
+                    <span className="text-xs font-bold text-rose-600">Tableau B</span>
+                  </div>
+                  <h3 className="font-black text-base sm:text-lg text-slate-900 mt-0.5">
+                    Mise à 0 du registre "Le Bon Danger"
+                  </h3>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsResetModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="py-4 space-y-4 text-xs">
+              {/* Medico-legal Alert Box */}
+              <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-950">
+                <div className="flex items-start gap-2.5">
+                  <AlertTriangle className="h-5 w-5 text-rose-600 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-bold text-xs text-rose-900">
+                      Procédure de clôture / remise à zéro du registre
+                    </p>
+                    <p className="text-[11px] text-rose-800/90 leading-relaxed">
+                      Cette opération réinitialise à zéro le registre des mouvements de <strong>Fentanyl 100 µg & 500 µg</strong>. Tous les compteurs de délivrance et de restitution d'ampoules vides seront remis à 0.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Impact Summary Counters */}
+              <div className="grid grid-cols-3 gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-200 text-center">
+                <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
+                  <span className="block text-[10px] text-slate-500 font-medium">Mouvements</span>
+                  <span className="font-extrabold text-slate-900 text-base">{bonDangerEntries.length}</span>
+                  <span className="block text-[9px] text-slate-400">lignes à effacer</span>
+                </div>
+                <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
+                  <span className="block text-[10px] text-slate-500 font-medium">Ampoules Fentanyl</span>
+                  <span className="font-extrabold text-rose-700 text-base">{stats.f100Delivered + stats.f500Delivered}</span>
+                  <span className="block text-[9px] text-slate-400">délivrées au total</span>
+                </div>
+                <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
+                  <span className="block text-[10px] text-slate-500 font-medium">Bons scannés</span>
+                  <span className="font-extrabold text-blue-700 text-base">{bonDangerDocuments.length}</span>
+                  <span className="block text-[9px] text-slate-400">fichiers archivés</span>
+                </div>
+              </div>
+
+              {/* Scope Selection */}
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-2">
+                  Choisissez le périmètre de la mise à zéro :
+                </label>
+                <div className="space-y-2">
+                  <label className={clsx(
+                    "flex items-start gap-3 p-3 rounded-2xl border cursor-pointer transition-all",
+                    resetScope === 'entries_only'
+                      ? "bg-rose-50/50 border-rose-300 ring-2 ring-rose-200/50"
+                      : "bg-white border-slate-200 hover:bg-slate-50"
+                  )}>
+                    <input
+                      type="radio"
+                      name="resetScope"
+                      checked={resetScope === 'entries_only'}
+                      onChange={() => setResetScope('entries_only')}
+                      className="mt-0.5 text-rose-600 focus:ring-rose-500"
+                    />
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-xs text-slate-900">
+                          Mettre à 0 uniquement le tableau des mouvements
+                        </span>
+                        <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
+                          Recommandé
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                        Efface les lignes de délivrance de Fentanyl. <strong>Préserve l'intégralité des {bonDangerDocuments.length} bons de commande physiques scannés</strong> pour garantir la couverture médico-légale.
+                      </p>
+                    </div>
+                  </label>
+
+                  <label className={clsx(
+                    "flex items-start gap-3 p-3 rounded-2xl border cursor-pointer transition-all",
+                    resetScope === 'all'
+                      ? "bg-rose-50/50 border-rose-300 ring-2 ring-rose-200/50"
+                      : "bg-white border-slate-200 hover:bg-slate-50"
+                  )}>
+                    <input
+                      type="radio"
+                      name="resetScope"
+                      checked={resetScope === 'all'}
+                      onChange={() => setResetScope('all')}
+                      className="mt-0.5 text-rose-600 focus:ring-rose-500"
+                    />
+                    <div>
+                      <span className="font-bold text-xs text-slate-900">
+                        Mise à 0 complète (Mouvements + Bons scannés médico-légaux)
+                      </span>
+                      <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                        Efface les écritures ET supprime tous les {bonDangerDocuments.length} documents scannés pour un redémarrage à blanc absolu.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Optional CSV Backup Download */}
+              {bonDangerEntries.length > 0 && (
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-600">
+                  <span className="text-[11px]">Besoin d'une copie de sauvegarde ?</span>
+                  <button
+                    type="button"
+                    onClick={exportBonDangerCSV}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-700 hover:text-blue-900 hover:underline"
+                  >
+                    <FileDown className="h-3.5 w-3.5" />
+                    Télécharger sauvegarde CSV
+                  </button>
+                </div>
+              )}
+
+              {/* Confirmation Checkbox */}
+              <div className="pt-2 border-t border-slate-100">
+                <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={resetConfirmed}
+                    onChange={(e) => setResetConfirmed(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                  />
+                  <span className="text-xs font-semibold text-slate-800">
+                    Je confirme vouloir réinitialiser à zéro le registre "Le Bon Danger"
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsResetModalOpen(false)}
+                className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                disabled={!resetConfirmed}
+                onClick={handleExecuteReset}
+                className={clsx(
+                  "flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold text-white shadow-xs transition-all",
+                  resetConfirmed
+                    ? "bg-rose-600 hover:bg-rose-700 active:scale-95 cursor-pointer"
+                    : "bg-rose-300 cursor-not-allowed opacity-60"
+                )}
+              >
+                <RotateCcw className="h-4 w-4" />
+                Confirmer la mise à 0
               </button>
             </div>
           </div>
