@@ -48,6 +48,39 @@ export interface PharmacyOrder {
   commentaires?: string;
 }
 
+export const ENTREE_ORIGINES = ['Pharmacie Centrale', 'Échange'] as const;
+export type EntreeOrigine = typeof ENTREE_ORIGINES[number];
+
+export const SORTIE_DESTINATIONS = ['Service', 'Décharge périmé', 'Perte'] as const;
+export type SortieDestination = typeof SORTIE_DESTINATIONS[number];
+
+export interface BonDangerEntry {
+  id: string;
+  productName: 'Fentanyl 100 µg' | 'Fentanyl 500 µg' | string;
+  lotNumber: string;
+  quantite: number; // Quantité d'ampoules délivrées/sorties
+  quantiteVideRecu: number; // Quantité du vide reçu (ampoules vides restituées)
+  nomIAR: string; // Nom de l'Infirmier Anesthésiste Réanimateur
+  date: string; // YYYY-MM-DD
+  heure?: string;
+  salle?: string;
+  observations?: string;
+}
+
+export interface BonDangerDocument {
+  id: string;
+  date: string; // Date du document / scan
+  reference: string; // Référence / N° de bon physique (ex: BC-STUP-2026-001)
+  iarName: string; // Nom de l'IAR ou prescripteur
+  productTarget?: string; // Fentanyl 100 µg, Fentanyl 500 µg, ou les deux
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  fileData: string; // Base64 data URI
+  uploadDate: string;
+  notes?: string;
+}
+
 interface NewProductInput {
   name: string;
   category: string;
@@ -63,6 +96,9 @@ interface NewProductInput {
 interface AppState {
   products: Product[];
   orders: PharmacyOrder[];
+  bonDangerEntries: BonDangerEntry[];
+  bonDangerDocuments: BonDangerDocument[];
+  
   addProduct: (product: NewProductInput) => void;
   updateProduct: (id: string, updates: Partial<Product>) => void;
   deleteProduct: (id: string) => void;
@@ -81,6 +117,13 @@ interface AppState {
   resumeCancelledOrder: (id: string) => void;
   receiveOrder: (id: string, receipts?: { productId: string; quantiteRecue: number; datePeremption?: string }[]) => void;
   deleteOrder: (id: string) => void;
+
+  // Le Bon Danger actions (Fentanyl 100 µg & 500 µg)
+  addBonDangerEntry: (entry: Omit<BonDangerEntry, 'id'>) => void;
+  updateBonDangerEntry: (id: string, updates: Partial<BonDangerEntry>) => void;
+  deleteBonDangerEntry: (id: string) => void;
+  addBonDangerDocument: (doc: Omit<BonDangerDocument, 'id' | 'uploadDate'>) => void;
+  deleteBonDangerDocument: (id: string) => void;
 }
 
 export const useStore = create<AppState>()(
@@ -88,6 +131,8 @@ export const useStore = create<AppState>()(
     (set, get) => ({
       products: [],
       orders: [],
+      bonDangerEntries: [],
+      bonDangerDocuments: [],
       
       addProduct: (input) => set((state) => {
         const productId = uuidv4();
@@ -322,6 +367,42 @@ export const useStore = create<AppState>()(
         orders: state.orders.filter(o => o.id !== id)
       })),
 
+      // Le Bon Danger actions
+      addBonDangerEntry: (entry) => set((state) => ({
+        bonDangerEntries: [
+          {
+            ...entry,
+            id: uuidv4()
+          },
+          ...(state.bonDangerEntries || [])
+        ]
+      })),
+
+      updateBonDangerEntry: (id, updates) => set((state) => ({
+        bonDangerEntries: (state.bonDangerEntries || []).map((e) =>
+          e.id === id ? { ...e, ...updates } : e
+        )
+      })),
+
+      deleteBonDangerEntry: (id) => set((state) => ({
+        bonDangerEntries: (state.bonDangerEntries || []).filter((e) => e.id !== id)
+      })),
+
+      addBonDangerDocument: (doc) => set((state) => ({
+        bonDangerDocuments: [
+          {
+            ...doc,
+            id: uuidv4(),
+            uploadDate: new Date().toISOString()
+          },
+          ...(state.bonDangerDocuments || [])
+        ]
+      })),
+
+      deleteBonDangerDocument: (id) => set((state) => ({
+        bonDangerDocuments: (state.bonDangerDocuments || []).filter((d) => d.id !== id)
+      })),
+
       seedDatabase: () => set((state) => {
         let currentProducts = state.products;
 
@@ -418,16 +499,65 @@ export const useStore = create<AppState>()(
             }
           ];
         }
+
+        // Seed initial Bon Danger records if empty
+        let currentBonDanger = state.bonDangerEntries;
+        if (!currentBonDanger || currentBonDanger.length === 0) {
+          const today = new Date().toISOString().split('T')[0];
+          const yesterday = new Date(Date.now() - 24 * 3600 * 1000).toISOString().split('T')[0];
+          const twoDaysAgo = new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString().split('T')[0];
+
+          currentBonDanger = [
+            {
+              id: uuidv4(),
+              productName: 'Fentanyl 100 µg',
+              lotNumber: 'FTN-2025-A12',
+              quantite: 5,
+              quantiteVideRecu: 5,
+              nomIAR: 'IAR EL ALAOUI Mohamed',
+              date: twoDaysAgo,
+              heure: '08:30',
+              salle: 'Salle 1 (Chirurgie Générale)',
+              observations: 'Conforme - 5 ampoules vides restituées et vérifiées'
+            },
+            {
+              id: uuidv4(),
+              productName: 'Fentanyl 500 µg',
+              lotNumber: 'FTN-500-B04',
+              quantite: 2,
+              quantiteVideRecu: 2,
+              nomIAR: 'IAR BENALI Fatima',
+              date: yesterday,
+              heure: '10:15',
+              salle: 'Salle 2 (Traumatologie)',
+              observations: 'Conforme - Restitution totale'
+            },
+            {
+              id: uuidv4(),
+              productName: 'Fentanyl 100 µg',
+              lotNumber: 'FTN-2025-A12',
+              quantite: 4,
+              quantiteVideRecu: 2,
+              nomIAR: 'IAR TAZI Rachid',
+              date: today,
+              heure: '09:00',
+              salle: 'Salle 1 (Urgences Bloc)',
+              observations: 'Intervention en cours - 2 ampoules vides en attente de restitution'
+            }
+          ];
+        }
         
         return { 
           products: currentProducts,
-          orders: currentOrders 
+          orders: currentOrders,
+          bonDangerEntries: currentBonDanger,
+          bonDangerDocuments: state.bonDangerDocuments || []
         };
       })
     }),
     {
       name: 'pharmacie-stock-storage',
-      version: 4,
+      version: 5,
       migrate: (persistedState: any, version: number) => {
         if (!persistedState) return persistedState;
         const products = Array.isArray(persistedState.products)
@@ -437,10 +567,14 @@ export const useStore = create<AppState>()(
             }))
           : [];
         const orders = Array.isArray(persistedState.orders) ? persistedState.orders : [];
+        const bonDangerEntries = Array.isArray(persistedState.bonDangerEntries) ? persistedState.bonDangerEntries : [];
+        const bonDangerDocuments = Array.isArray(persistedState.bonDangerDocuments) ? persistedState.bonDangerDocuments : [];
         return {
           ...persistedState,
           products,
-          orders
+          orders,
+          bonDangerEntries,
+          bonDangerDocuments
         } as AppState;
       }
     }

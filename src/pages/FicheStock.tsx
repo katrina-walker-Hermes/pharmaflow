@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { useStore, getCurrentStock, Product } from '../store';
+import { useStore, getCurrentStock, Product, ENTREE_ORIGINES, SORTIE_DESTINATIONS } from '../store';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, 
@@ -16,6 +16,7 @@ import {
   ChevronRight,
   RotateCcw,
   AlertTriangle,
+  ShieldAlert,
   X
 } from 'lucide-react';
 import { clsx } from 'clsx';
@@ -465,6 +466,38 @@ export default function FicheStock() {
         )}
       </div>
 
+      {/* FENTANYL ISOLATION BANNER FOR NARCOTIC REGULATION */}
+      {activeProduct?.name.toLowerCase().includes('fentanyl') && (
+        <div className="rounded-2xl border-2 border-rose-300 bg-rose-50 p-4 sm:p-5 text-rose-950 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs print:hidden">
+          <div className="flex items-start gap-3.5">
+            <div className="p-2.5 rounded-xl bg-rose-600 text-white shrink-0 mt-0.5 shadow-2xs">
+              <ShieldAlert className="h-6 w-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-black uppercase tracking-wider bg-rose-200 text-rose-800 px-2 py-0.5 rounded">
+                  Stupéfiant - Tableau B
+                </span>
+                <span className="text-xs font-bold text-rose-700">Gestion Isolée Obligatoire</span>
+              </div>
+              <h3 className="text-base font-black text-rose-950 mt-1">
+                La traçabilité du Fentanyl est gérée exclusivement dans "Le Bon Danger"
+              </h3>
+              <p className="text-xs text-rose-800 mt-1 max-w-2xl leading-relaxed">
+                Conformément à la législation médico-légale et aux règles du bloc opératoire, le Fentanyl (100 µg et 500 µg) est séparé des fiches de stock générales. Il dispose du registre sécurisé <strong>"Le Bon Danger"</strong> avec restitution obligatoire des ampoules vides et archivage certifié des bons de commande physiques scannés.
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/le-bon-danger"
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-700 hover:bg-rose-800 text-white px-4 py-2.5 text-xs font-bold shadow-xs shrink-0 active:scale-95 transition-all"
+          >
+            <ShieldAlert className="h-4 w-4" />
+            Ouvrir "Le Bon Danger"
+          </Link>
+        </div>
+      )}
+
       {/* OFFICIAL SIDI IFNI FICHE DE STOCK CONTAINER */}
       <div className="rounded-2xl border border-slate-300/80 bg-white p-4 sm:p-6 shadow-xs print:border-none print:shadow-none print:p-0">
         {/* Official Header */}
@@ -566,7 +599,7 @@ export default function FicheStock() {
               <button
                 type="button"
                 onClick={() => {
-                  setOrigineDestination('Salle d\'opération');
+                  setOrigineDestination('Service');
                   setActiveAction('sortie');
                 }}
                 className="flex items-center justify-center gap-1.5 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-rose-700 transition-all shadow-xs active:scale-95"
@@ -711,14 +744,56 @@ export default function FicheStock() {
               />
             </div>
 
-            <div>
+            <div className="sm:col-span-2">
               <label className="block text-xs font-bold text-slate-700 mb-1">
-                {activeAction === 'entree' ? 'De (Origine / Fournisseur)' : 'Pour (Destination / Salle)'}
+                {activeAction === 'entree' ? 'De (Choix de l\'origine) :' : 'Pour (Choix de la destination) :'}
               </label>
+
+              {/* Standard choices requested: Entrée: Pharmacie Centrale, Échange | Sortie: Service, Décharge périmé, Perte */}
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {activeAction === 'entree' ? (
+                  <>
+                    {ENTREE_ORIGINES.map((choice) => (
+                      <button
+                        key={choice}
+                        type="button"
+                        onClick={() => setOrigineDestination(choice)}
+                        className={clsx(
+                          "px-2.5 py-1 rounded-lg text-xs font-bold border transition-all active:scale-95",
+                          origineDestination === choice
+                            ? "bg-emerald-700 text-white border-emerald-700 shadow-2xs"
+                            : "bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100"
+                        )}
+                      >
+                        {choice}
+                      </button>
+                    ))}
+                  </>
+                ) : (
+                  <>
+                    {SORTIE_DESTINATIONS.map((choice) => (
+                      <button
+                        key={choice}
+                        type="button"
+                        onClick={() => setOrigineDestination(choice)}
+                        className={clsx(
+                          "px-2.5 py-1 rounded-lg text-xs font-bold border transition-all active:scale-95",
+                          origineDestination === choice
+                            ? "bg-rose-700 text-white border-rose-700 shadow-2xs"
+                            : "bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100"
+                        )}
+                      >
+                        {choice}
+                      </button>
+                    ))}
+                  </>
+                )}
+              </div>
+
               <input
                 type="text"
                 required
-                placeholder={activeAction === 'entree' ? 'Ex: Pharmacie centrale...' : 'Ex: Salle 1, Urgence...'}
+                placeholder={activeAction === 'entree' ? 'Ex: Pharmacie Centrale, Échange...' : 'Ex: Service, Décharge périmé, Perte...'}
                 value={origineDestination}
                 onChange={(e) => setOrigineDestination(e.target.value)}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-teal-600 focus:ring-2 focus:ring-teal-100 outline-none"

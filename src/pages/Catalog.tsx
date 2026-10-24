@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useStore, getCurrentStock } from '../store';
 import { Link } from 'react-router-dom';
-import { Folder, Plus, Search, RotateCcw, PackageCheck, AlertCircle, FileDown, FileText } from 'lucide-react';
+import { Folder, Plus, Search, RotateCcw, PackageCheck, AlertCircle, FileDown, FileText, ShieldAlert } from 'lucide-react';
 import AddProductModal from '../components/AddProductModal';
 import ResetConfirmModal from '../components/ResetConfirmModal';
 import ExportPdfModal from '../components/ExportPdfModal';
@@ -124,6 +124,36 @@ export default function Catalog() {
           onChange={(e) => setSearchTerm(e.target.value)}
           className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-10 pr-4 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-100 outline-none transition-all shadow-2xs"
         />
+      </div>
+
+      {/* SPECIAL NARCOTIC SEPARATION CALLOUT */}
+      <div className="rounded-2xl border-2 border-rose-300 bg-rose-50/80 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-2xs">
+        <div className="flex items-start gap-3">
+          <div className="rounded-xl bg-rose-600 p-2.5 text-white shrink-0 mt-0.5">
+            <ShieldAlert className="h-5 w-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-black uppercase tracking-wider bg-rose-200 text-rose-800 px-2 py-0.5 rounded">
+                Stupéfiants (Tableau B)
+              </span>
+              <span className="text-xs font-bold text-rose-700">Gestion Isolée Sécurisée</span>
+            </div>
+            <h3 className="text-sm sm:text-base font-black text-rose-950 mt-0.5">
+              Fentanyl 100 µg & Fentanyl 500 µg — "Le Bon Danger"
+            </h3>
+            <p className="text-xs text-rose-800 mt-1 max-w-xl leading-relaxed">
+              Le Fentanyl ne fait plus partie des fiches de stock générales : il est géré dans le registre sécurisé "Le Bon Danger" avec traçabilité stricte des ampoules vides reçues et archivage des bons de commande physiques scannés.
+            </p>
+          </div>
+        </div>
+        <Link
+          to="/le-bon-danger"
+          className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-rose-700 hover:bg-rose-800 text-white px-4 py-2.5 text-xs font-bold shadow-xs shrink-0 active:scale-95 transition-all"
+        >
+          <ShieldAlert className="h-4 w-4" />
+          Ouvrir "Le Bon Danger"
+        </Link>
       </div>
 
       {/* Categories Grid */}

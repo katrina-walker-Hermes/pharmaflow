@@ -4,7 +4,8 @@ import {
   PackageSearch, 
   AlertOctagon, 
   ClipboardList,
-  FileText
+  FileText,
+  ShieldAlert
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useStore } from '../store';
@@ -13,9 +14,14 @@ export default function MobileBottomNav() {
   const location = useLocation();
   const orders = useStore((state) => state.orders);
   const products = useStore((state) => state.products);
+  const bonDangerEntries = useStore((state) => state.bonDangerEntries) || [];
 
   const cancelledOrdersCount = orders.filter((o) => o.statut === 'annulee').length;
-  const hospitalRupturesCount = products.filter((p) => p.enRuptureHopital).length;
+  const missingVidesCount = bonDangerEntries.reduce((acc, curr) => {
+    const q = Number(curr.quantite) || 0;
+    const v = Number(curr.quantiteVideRecu) || 0;
+    return acc + Math.max(0, q - v);
+  }, 0);
 
   const items = [
     {
@@ -31,10 +37,12 @@ export default function MobileBottomNav() {
       active: location.pathname.startsWith('/fiches-de-stock') || location.pathname.startsWith('/product'),
     },
     {
-      name: 'Catalogue',
-      href: '/catalog',
-      icon: PackageSearch,
-      active: location.pathname.startsWith('/catalog'),
+      name: 'Bon Danger',
+      href: '/le-bon-danger',
+      icon: ShieldAlert,
+      active: location.pathname === '/le-bon-danger',
+      badge: missingVidesCount > 0 ? missingVidesCount : undefined,
+      badgeColor: 'bg-rose-600 text-white font-bold',
     },
     {
       name: 'Commandes',
@@ -45,12 +53,10 @@ export default function MobileBottomNav() {
       badgeColor: 'bg-rose-500 text-white',
     },
     {
-      name: 'Ruptures',
-      href: '/ruptures',
-      icon: AlertOctagon,
-      active: location.pathname === '/ruptures',
-      badge: hospitalRupturesCount > 0 ? hospitalRupturesCount : undefined,
-      badgeColor: 'bg-rose-500 text-white',
+      name: 'Catalogue',
+      href: '/catalog',
+      icon: PackageSearch,
+      active: location.pathname.startsWith('/catalog'),
     },
   ];
 

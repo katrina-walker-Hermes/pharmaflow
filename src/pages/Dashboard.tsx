@@ -20,7 +20,8 @@ import {
   ArrowUpRight,
   Activity,
   Calendar,
-  Filter
+  Filter,
+  ShieldAlert
 } from 'lucide-react';
 import AddProductModal from '../components/AddProductModal';
 import ResetConfirmModal from '../components/ResetConfirmModal';
@@ -37,12 +38,23 @@ export default function Dashboard() {
   const products = useStore((state) => state.products);
   const orders = useStore((state) => state.orders);
   const resumeCancelledOrder = useStore((state) => state.resumeCancelledOrder);
+  const bonDangerEntries = useStore((state) => state.bonDangerEntries) || [];
+  const bonDangerDocuments = useStore((state) => state.bonDangerDocuments) || [];
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
   const [resumeSuccessMessage, setResumeSuccessMessage] = useState<string | null>(null);
   const [quickSearchProduct, setQuickSearchProduct] = useState('');
+
+  // Bon Danger stats
+  const missingVidesCount = useMemo(() => {
+    return bonDangerEntries.reduce((acc, curr) => {
+      const q = Number(curr.quantite) || 0;
+      const v = Number(curr.quantiteVideRecu) || 0;
+      return acc + Math.max(0, q - v);
+    }, 0);
+  }, [bonDangerEntries]);
 
   // Transactions feed filter state
   const [txTypeFilter, setTxTypeFilter] = useState<'all' | 'entree' | 'sortie'>('all');
@@ -322,6 +334,50 @@ export default function Dashboard() {
               )}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* SPOTLIGHT: LE BON DANGER (FENTANYL 100 µg & 500 µg) */}
+      <div className="rounded-2xl border-2 border-rose-300 bg-rose-50/70 p-4 sm:p-5 shadow-xs">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-start gap-3.5">
+            <div className="rounded-xl bg-rose-700 p-3 text-white shadow-xs shrink-0">
+              <ShieldAlert className="h-6 w-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-black uppercase tracking-wider bg-rose-200 text-rose-800 px-2 py-0.5 rounded">
+                  Stupéfiants — Tableau B
+                </span>
+                <h2 className="text-base sm:text-lg font-black text-rose-950">
+                  Le Bon Danger — Gestion sécurisée du Fentanyl
+                </h2>
+                {missingVidesCount > 0 ? (
+                  <span className="rounded-full bg-amber-200 text-amber-900 text-[10px] font-black px-2.5 py-0.5">
+                    ⚠️ {missingVidesCount} ampoule{missingVidesCount > 1 ? 's' : ''} vide{missingVidesCount > 1 ? 's' : ''} en attente
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5">
+                    ✓ Réconciliation conforme
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-rose-800 mt-1 max-w-2xl leading-relaxed">
+                Suivi obligatoire séparé pour Fentanyl 100 µg et 500 µg : traçabilité des ampoules délivrées, restitution des ampoules vides par les IAR et archivage médico-légal des bons de commande physiques scannés ({bonDangerDocuments.length} document{bonDangerDocuments.length > 1 ? 's' : ''} archivé{bonDangerDocuments.length > 1 ? 's' : ''}).
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0 self-start md:self-auto">
+            <Link
+              to="/le-bon-danger"
+              className="inline-flex items-center gap-2 rounded-xl bg-rose-700 hover:bg-rose-800 text-white px-4 py-2.5 text-xs sm:text-sm font-bold shadow-xs active:scale-95 transition-all"
+            >
+              <ShieldAlert className="h-4 w-4" />
+              <span>Accéder au "Bon Danger"</span>
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
         </div>
       </div>
 

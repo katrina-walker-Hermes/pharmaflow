@@ -7,6 +7,7 @@ import FicheStock from './pages/FicheStock';
 import CalendrierPeremption from './pages/CalendrierPeremption';
 import Ruptures from './pages/Ruptures';
 import Commandes from './pages/Commandes';
+import LeBonDanger from './pages/LeBonDanger';
 import ErrorBoundary from './components/ErrorBoundary';
 
 function App() {
@@ -15,6 +16,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<Dashboard />} />
+          <Route path="le-bon-danger" element={<LeBonDanger />} />
           <Route path="fiches-de-stock" element={<FicheStock />} />
           <Route path="fiches-de-stock/:productId" element={<FicheStock />} />
           <Route path="catalog" element={<Catalog />} />

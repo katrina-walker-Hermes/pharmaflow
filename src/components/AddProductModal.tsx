@@ -272,12 +272,29 @@ export default function AddProductModal({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Origine / Libellé</label>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Origine / Fournisseur</label>
+                  <div className="flex flex-wrap gap-1 mb-1">
+                    {['Pharmacie Centrale', 'Échange', 'Inventaire initial'].map((choice) => (
+                      <button
+                        key={choice}
+                        type="button"
+                        onClick={() => setInitialOrigine(choice)}
+                        className={clsx(
+                          "px-2 py-0.5 rounded text-[10px] font-semibold border transition-all",
+                          initialOrigine === choice
+                            ? "bg-teal-700 text-white border-teal-700"
+                            : "bg-white text-slate-600 border-slate-300 hover:bg-slate-50"
+                        )}
+                      >
+                        {choice}
+                      </button>
+                    ))}
+                  </div>
                   <input
                     type="text"
                     value={initialOrigine}
                     onChange={(e) => setInitialOrigine(e.target.value)}
-                    className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 outline-none focus:border-teal-600"
+                    className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-800 outline-none focus:border-teal-600"
                   />
                 </div>
               </div>

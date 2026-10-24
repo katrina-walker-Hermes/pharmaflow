@@ -10,7 +10,8 @@ import {
   Plus,
   RotateCcw,
   FileDown,
-  FileText
+  FileText,
+  ShieldAlert
 } from 'lucide-react';
 import { useState } from 'react';
 import { clsx } from 'clsx';
@@ -30,9 +31,22 @@ export default function Layout() {
 
   const orders = useStore((state) => state.orders);
   const cancelledOrdersCount = orders.filter((o) => o.statut === 'annulee').length;
+  const bonDangerEntries = useStore((state) => state.bonDangerEntries) || [];
+  const missingVidesCount = bonDangerEntries.reduce((acc, curr) => {
+    const q = Number(curr.quantite) || 0;
+    const v = Number(curr.quantiteVideRecu) || 0;
+    return acc + Math.max(0, q - v);
+  }, 0);
 
   const navigation = [
     { name: 'Tableau de bord', href: '/', icon: LayoutDashboard },
+    { 
+      name: 'Le Bon Danger', 
+      href: '/le-bon-danger', 
+      icon: ShieldAlert,
+      badge: missingVidesCount > 0 ? `${missingVidesCount} vide${missingVidesCount > 1 ? 's' : ''}` : 'Fentanyl',
+      badgeColor: missingVidesCount > 0 ? 'bg-amber-500 text-slate-950 font-black' : 'bg-rose-600 text-white font-bold'
+    },
     { 
       name: 'Fiches de Stock', 
       href: '/fiches-de-stock', 
@@ -194,6 +208,21 @@ export default function Layout() {
           
           <div className="flex items-center gap-2">
             <PWAInstallButton />
+
+            {/* Direct Bon Danger button (Fentanyl Stupéfiants) */}
+            <Link
+              to="/le-bon-danger"
+              className="flex items-center gap-1.5 rounded-lg border border-rose-300 bg-rose-50 px-2 sm:px-2.5 py-1.5 text-xs font-bold text-rose-800 hover:bg-rose-100 transition-colors shadow-2xs active:scale-95"
+              title="Accéder au registre sécurisé Le Bon Danger (Fentanyl 100 µg & 500 µg)"
+            >
+              <ShieldAlert className="h-3.5 w-3.5 text-rose-600 shrink-0" />
+              <span className="hidden sm:inline">Bon Danger</span>
+              {missingVidesCount > 0 && (
+                <span className="bg-rose-600 text-white rounded-full px-1 text-[9px] font-black">
+                  {missingVidesCount}
+                </span>
+              )}
+            </Link>
 
             {/* Direct Fiches de Stock Button in Header - Always visible */}
             <Link
