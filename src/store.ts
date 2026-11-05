@@ -85,6 +85,18 @@ export interface BonDangerDocument {
   notes?: string;
 }
 
+export interface AppBackupData {
+  version: number;
+  exportDate: string;
+  appName: string;
+  hospital: string;
+  service: string;
+  products: Product[];
+  orders: PharmacyOrder[];
+  bonDangerEntries: BonDangerEntry[];
+  bonDangerDocuments: BonDangerDocument[];
+}
+
 interface NewProductInput {
   name: string;
   category: string;
@@ -132,6 +144,10 @@ interface AppState {
   deleteBonDangerDocument: (id: string) => void;
   resetBonDanger: (options?: { resetEntries?: boolean; resetDocuments?: boolean }) => void;
   restoreSampleBonDanger: () => void;
+
+  // JSON Backup & Import actions
+  exportAllData: () => AppBackupData;
+  importAllData: (rawPayload: any, mode?: 'replace' | 'merge') => { success: boolean; message: string; count: number };
 }
 
 export const useStore = create<AppState>()(
@@ -658,7 +674,196 @@ export const useStore = create<AppState>()(
           bonDangerDocuments: state.bonDangerDocuments || [],
           bonDangerInitialized: true
         };
-      })
+      }),
+
+      exportAllData: () => {
+        const state = get();
+        return {
+          version: 1,
+          exportDate: new Date().toISOString(),
+          appName: 'Gestion Pharmacie Bloc Opératoire',
+          hospital: 'Centre Hospitalier Provincial SIDI IFNI',
+          service: 'Service du Bloc Opératoire',
+          products: state.products || [],
+          orders: state.orders || [],
+          bonDangerEntries: state.bonDangerEntries || [],
+          bonDangerDocuments: state.bonDangerDocuments || [],
+        };
+      },
+
+      importAllData: (rawPayload: any, mode = 'replace') => {
+        if (!rawPayload) {
+          return { success: false, message: 'Le fichier sélectionné est vide ou invalide.', count: 0 };
+        }
+
+        let importedProducts: any[] = [];
+        let importedOrders: any[] = [];
+        let importedBonDangerEntries: any[] = [];
+        let importedBonDangerDocuments: any[] = [];
+
+        if (Array.isArray(rawPayload)) {
+          // Direct array of products
+          importedProducts = rawPayload;
+        } else if (typeof rawPayload === 'object') {
+          if (Array.isArray(rawPayload.products)) {
+            importedProducts = rawPayload.products;
+          }
+          if (Array.isArray(rawPayload.orders)) {
+            importedOrders = rawPayload.orders;
+          }
+          if (Array.isArray(rawPayload.bonDangerEntries)) {
+            importedBonDangerEntries = rawPayload.bonDangerEntries;
+          }
+          if (Array.isArray(rawPayload.bonDangerDocuments)) {
+            importedBonDangerDocuments = rawPayload.bonDangerDocuments;
+          }
+        }
+
+        if (importedProducts.length === 0 && importedOrders.length === 0 && importedBonDangerEntries.length === 0) {
+          return {
+            success: false,
+            message: 'Aucune donnée exploitable (produits, commandes ou fiches) détectée dans ce fichier JSON.',
+            count: 0,
+          };
+        }
+
+        // Clean & normalize imported products
+        const sanitizedProducts: Product[] = importedProducts.map((p: any) => ({
+          id: p.id || uuidv4(),
+          name: String(p.name || 'Produit sans nom').trim(),
+          category: normalizeCategoryName(p.category || 'Général'),
+          isImportant: Boolean(p.isImportant),
+          stockSecurite: Number(p.stockSecurite) || 0,
+          quantiteMoyenneMensuelle: Number(p.quantiteMoyenneMensuelle) || 0,
+          enRuptureHopital: Boolean(p.enRuptureHopital),
+          transactions: Array.isArray(p.transactions)
+            ? p.transactions.map((t: any) => ({
+                id: t.id || uuidv4(),
+                date: t.date || new Date().toISOString(),
+                type: (t.type === 'entree' || t.type === 'sortie') ? t.type : 'entree',
+                quantite: Number(t.quantite) || 0,
+                origineDestination: String(t.origineDestination || 'Non spécifié').trim(),
+                datePeremption: t.datePeremption || undefined,
+                numeroLot: t.numeroLot || undefined,
+              }))
+            : [],
+        }));
+
+        // Clean & normalize imported orders
+        const sanitizedOrders: PharmacyOrder[] = importedOrders.map((o: any) => ({
+          id: o.id || uuidv4(),
+          numeroCommande: o.numeroCommande || `BC-${new Date().getFullYear()}-001`,
+          dateCreation: o.dateCreation || new Date().toISOString(),
+          dateLivraisonPrevue: o.dateLivraisonPrevue,
+          dateReception: o.dateReception,
+          dateAnnulation: o.dateAnnulation,
+          statut: o.statut || 'en_cours',
+          serviceDemandeur: o.serviceDemandeur || 'Bloc Opératoire',
+          destinataire: o.destinataire || 'Pharmacie Centrale',
+          motifAnnulation: o.motifAnnulation,
+          commentaires: o.commentaires,
+          items: Array.isArray(o.items)
+            ? o.items.map((it: any) => ({
+                productId: it.productId || uuidv4(),
+                productName: it.productName || 'Article',
+                category: normalizeCategoryName(it.category || 'Général'),
+                quantiteDemandee: Number(it.quantiteDemandee) || 1,
+                quantiteRecue: it.quantiteRecue !== undefined ? Number(it.quantiteRecue) : undefined,
+                datePeremption: it.datePeremption,
+                numeroLot: it.numeroLot,
+              }))
+            : [],
+        }));
+
+        if (mode === 'replace') {
+          set({
+            products: sanitizedProducts,
+            orders: sanitizedOrders,
+            bonDangerEntries: importedBonDangerEntries,
+            bonDangerDocuments: importedBonDangerDocuments,
+            bonDangerInitialized: true,
+          });
+
+          return {
+            success: true,
+            message: `Restauration complète réussie : ${sanitizedProducts.length} fiches de stock, ${sanitizedOrders.length} commandes et ${importedBonDangerEntries.length} registres Bon Danger importés.`,
+            count: sanitizedProducts.length,
+          };
+        } else {
+          // Merge mode (Fusion intelligente)
+          set((state) => {
+            const existingProds = [...state.products];
+
+            sanitizedProducts.forEach((newProd) => {
+              const existingIndex = existingProds.findIndex(
+                (p) => p.id === newProd.id || p.name.trim().toLowerCase() === newProd.name.trim().toLowerCase()
+              );
+
+              if (existingIndex >= 0) {
+                const existing = existingProds[existingIndex];
+                const existingTxIds = new Set(existing.transactions.map((t) => t.id));
+                const mergedTx = [...existing.transactions];
+
+                newProd.transactions.forEach((tx) => {
+                  if (!existingTxIds.has(tx.id)) {
+                    mergedTx.push(tx);
+                  }
+                });
+
+                existingProds[existingIndex] = {
+                  ...existing,
+                  transactions: mergedTx,
+                  stockSecurite: Math.max(existing.stockSecurite, newProd.stockSecurite),
+                  quantiteMoyenneMensuelle: Math.max(existing.quantiteMoyenneMensuelle, newProd.quantiteMoyenneMensuelle),
+                };
+              } else {
+                existingProds.push(newProd);
+              }
+            });
+
+            // Merge orders
+            const existingOrders = [...state.orders];
+            const existingOrderIds = new Set(existingOrders.map((o) => o.id));
+            sanitizedOrders.forEach((o) => {
+              if (!existingOrderIds.has(o.id)) {
+                existingOrders.push(o);
+              }
+            });
+
+            // Merge Bon Danger
+            const existingBonDanger = [...state.bonDangerEntries];
+            const existingBDEntryIds = new Set(existingBonDanger.map((e) => e.id));
+            importedBonDangerEntries.forEach((e) => {
+              if (!existingBDEntryIds.has(e.id)) {
+                existingBonDanger.push(e);
+              }
+            });
+
+            // Merge Bon Danger Documents
+            const existingDocs = [...state.bonDangerDocuments];
+            const existingDocIds = new Set(existingDocs.map((d) => d.id));
+            importedBonDangerDocuments.forEach((d) => {
+              if (!existingDocIds.has(d.id)) {
+                existingDocs.push(d);
+              }
+            });
+
+            return {
+              products: existingProds,
+              orders: existingOrders,
+              bonDangerEntries: existingBonDanger,
+              bonDangerDocuments: existingDocs,
+              bonDangerInitialized: true,
+            };
+          });
+
+          return {
+            success: true,
+            message: `Fusion réussie : ${sanitizedProducts.length} fiches et enregistrements associés intégrés.`,
+            count: sanitizedProducts.length,
+          };
+        }
+      },
     }),
     {
       name: 'pharmacie-stock-storage',

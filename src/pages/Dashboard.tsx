@@ -21,11 +21,13 @@ import {
   Activity,
   Calendar,
   Filter,
-  ShieldAlert
+  ShieldAlert,
+  FileCode2
 } from 'lucide-react';
 import AddProductModal from '../components/AddProductModal';
 import ResetConfirmModal from '../components/ResetConfirmModal';
 import ExportPdfModal from '../components/ExportPdfModal';
+import JsonBackupModal from '../components/JsonBackupModal';
 import { format, parseISO } from 'date-fns';
 import { clsx } from 'clsx';
 import { sortProductsByCategoryAndName } from '../utils/categoryOrder';
@@ -45,6 +47,7 @@ export default function Dashboard() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
+  const [isJsonBackupOpen, setIsJsonBackupOpen] = useState(false);
   const [resumeSuccessMessage, setResumeSuccessMessage] = useState<string | null>(null);
   const [quickSearchProduct, setQuickSearchProduct] = useState('');
 
@@ -652,6 +655,16 @@ export default function Dashboard() {
               Exporter PDF
             </button>
 
+            <button
+              type="button"
+              onClick={() => setIsJsonBackupOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 sm:px-3.5 py-2 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 transition-all active:scale-95"
+              title="Télécharger ou importer toutes les données du stock au format JSON"
+            >
+              <FileCode2 className="h-4 w-4 text-teal-700" />
+              Données JSON
+            </button>
+
             <div className="text-right pl-1">
               <span className="block text-xl sm:text-2xl font-black text-teal-900 leading-none">
                 {inventoriedCount} / {totalProducts}
@@ -824,6 +837,7 @@ export default function Dashboard() {
       <AddProductModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} />
       <ResetConfirmModal isOpen={isResetModalOpen} onClose={() => setIsResetModalOpen(false)} />
       <ExportPdfModal isOpen={isExportPdfOpen} onClose={() => setIsExportPdfOpen(false)} />
+      <JsonBackupModal isOpen={isJsonBackupOpen} onClose={() => setIsJsonBackupOpen(false)} />
     </div>
   );
 }

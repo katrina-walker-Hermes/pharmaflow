@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useStore, getCurrentStock } from '../store';
 import { Link } from 'react-router-dom';
-import { Folder, Plus, Search, RotateCcw, PackageCheck, AlertCircle, FileDown, FileText, ShieldAlert } from 'lucide-react';
+import { Folder, Plus, Search, RotateCcw, PackageCheck, AlertCircle, FileDown, FileText, ShieldAlert, FileCode2 } from 'lucide-react';
 import AddProductModal from '../components/AddProductModal';
 import ResetConfirmModal from '../components/ResetConfirmModal';
 import ExportPdfModal from '../components/ExportPdfModal';
+import JsonBackupModal from '../components/JsonBackupModal';
 import { sortCategories } from '../utils/categoryOrder';
 
 export default function Catalog() {
@@ -15,6 +16,7 @@ export default function Catalog() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
+  const [isJsonBackupOpen, setIsJsonBackupOpen] = useState(false);
 
   // Group by category using custom clinical order
   const rawCategories = Array.from(new Set(safeProducts.map((p) => p?.category).filter(Boolean))) as string[];
@@ -65,6 +67,16 @@ export default function Catalog() {
           >
             <FileDown className="h-3.5 w-3.5 text-teal-700" />
             <span className="hidden sm:inline">Rapport</span> PDF
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsJsonBackupOpen(true)}
+            className="flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs active:scale-95"
+            title="Télécharger ou importer toutes les données du stock au format JSON"
+          >
+            <FileCode2 className="h-3.5 w-3.5 text-teal-700" />
+            <span className="hidden sm:inline">Données</span> JSON
           </button>
 
           <button
@@ -230,6 +242,7 @@ export default function Catalog() {
       <AddProductModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} />
       <ResetConfirmModal isOpen={isResetModalOpen} onClose={() => setIsResetModalOpen(false)} />
       <ExportPdfModal isOpen={isExportPdfOpen} onClose={() => setIsExportPdfOpen(false)} />
+      <JsonBackupModal isOpen={isJsonBackupOpen} onClose={() => setIsJsonBackupOpen(false)} />
     </div>
   );
 }
