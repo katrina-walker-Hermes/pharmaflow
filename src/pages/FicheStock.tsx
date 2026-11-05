@@ -105,6 +105,7 @@ export default function FicheStock() {
   const [quantite, setQuantite] = useState<string>('');
   const [origineDestination, setOrigineDestination] = useState<string>('');
   const [datePeremption, setDatePeremption] = useState<string>('');
+  const [numeroLot, setNumeroLot] = useState<string>('');
   const [dateTransaction, setDateTransaction] = useState<string>(() => {
     try {
       return new Date().toISOString().split('T')[0];
@@ -116,6 +117,7 @@ export default function FicheStock() {
   // Initial Inventory state
   const [inventoryCount, setInventoryCount] = useState<string>('');
   const [inventoryExpiry, setInventoryExpiry] = useState<string>('');
+  const [inventoryLot, setInventoryLot] = useState<string>('');
 
   // Edit product state
   const [editName, setEditName] = useState('');
@@ -218,13 +220,15 @@ export default function FicheStock() {
       quantite: qtyNum,
       origineDestination: origineDestination.trim(),
       date: validDateIso,
-      ...(validExpiryIso ? { datePeremption: validExpiryIso } : {})
+      ...(validExpiryIso ? { datePeremption: validExpiryIso } : {}),
+      ...(activeAction === 'entree' && numeroLot.trim() ? { numeroLot: numeroLot.trim() } : {}),
     });
 
     setActiveAction(null);
     setQuantite('');
     setOrigineDestination('');
     setDatePeremption('');
+    setNumeroLot('');
   };
 
   const handleInventorySubmit = (e: React.FormEvent) => {
@@ -246,11 +250,13 @@ export default function FicheStock() {
       activeProduct.id,
       count,
       validExpiryIso,
-      'Inventaire initial'
+      'Inventaire initial',
+      inventoryLot.trim() || undefined
     );
     setActiveAction(null);
     setInventoryCount('');
     setInventoryExpiry('');
+    setInventoryLot('');
   };
 
   const handleEditSubmit = (e: React.FormEvent) => {
@@ -551,9 +557,16 @@ export default function FicheStock() {
 
           <div>
             <span className="text-[10px] sm:text-xs text-slate-500 font-semibold uppercase block">Prochaine Péremption</span>
-            <span className="font-bold text-sm sm:text-base text-blue-700 block mt-0.5">
-              {safeFormatDate(expiringEntry?.datePeremption, 'MM/yyyy')}
-            </span>
+            <div className="flex flex-wrap items-baseline gap-1.5 mt-0.5">
+              <span className="font-bold text-sm sm:text-base text-blue-700">
+                {safeFormatDate(expiringEntry?.datePeremption, 'MM/yyyy')}
+              </span>
+              {expiringEntry?.numeroLot && (
+                <span className="inline-flex items-center text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-900 border border-blue-200">
+                  Lot: {expiringEntry.numeroLot}
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -663,7 +676,7 @@ export default function FicheStock() {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
                 Effectif compté (Quantité en stock) <span className="text-rose-500">*</span>
@@ -676,6 +689,18 @@ export default function FicheStock() {
                 value={inventoryCount}
                 onChange={(e) => setInventoryCount(e.target.value)}
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-teal-600 focus:ring-2 focus:ring-teal-100 outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Numéro de Lot
+              </label>
+              <input
+                type="text"
+                placeholder="Ex: LOT-2026-X1"
+                value={inventoryLot}
+                onChange={(e) => setInventoryLot(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-teal-600 focus:ring-2 focus:ring-teal-100 outline-none font-mono"
               />
             </div>
             <div>
@@ -808,15 +833,27 @@ export default function FicheStock() {
             </div>
 
             {activeAction === 'entree' && (
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Date de Péremption</label>
-                <input
-                  type="date"
-                  value={datePeremption}
-                  onChange={(e) => setDatePeremption(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-teal-600 focus:ring-2 focus:ring-teal-100 outline-none"
-                />
-              </div>
+              <>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">N° de Lot</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: LOT-45892"
+                    value={numeroLot}
+                    onChange={(e) => setNumeroLot(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-teal-600 focus:ring-2 focus:ring-teal-100 outline-none font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Date de Péremption</label>
+                  <input
+                    type="date"
+                    value={datePeremption}
+                    onChange={(e) => setDatePeremption(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-teal-600 focus:ring-2 focus:ring-teal-100 outline-none"
+                  />
+                </div>
+              </>
             )}
           </div>
 
@@ -960,6 +997,7 @@ export default function FicheStock() {
               <tr className="bg-slate-100/80 text-[11px] font-bold uppercase text-slate-700">
                 <th className="border border-slate-300 px-3 sm:px-4 py-2.5 sm:py-3 w-28 sm:w-32">Date</th>
                 <th className="border border-slate-300 px-3 sm:px-4 py-2.5 sm:py-3">de : ........ pour : ........</th>
+                <th className="border border-slate-300 px-3 sm:px-4 py-2.5 sm:py-3 text-center w-28 sm:w-32">N° de Lot</th>
                 <th className="border border-slate-300 px-3 sm:px-4 py-2.5 sm:py-3 text-right w-20 sm:w-24">Entrées</th>
                 <th className="border border-slate-300 px-3 sm:px-4 py-2.5 sm:py-3 text-right w-20 sm:w-24">Sorties</th>
                 <th className="border border-slate-300 px-3 sm:px-4 py-2.5 sm:py-3 text-right w-20 sm:w-24 bg-teal-50/70 text-teal-900">Stock</th>
@@ -974,6 +1012,15 @@ export default function FicheStock() {
                   </td>
                   <td className="border border-slate-200 px-3 sm:px-4 py-2.5 sm:py-3 text-slate-700">
                     {t.origineDestination || '-'}
+                  </td>
+                  <td className="border border-slate-200 px-3 sm:px-4 py-2.5 sm:py-3 text-center whitespace-nowrap">
+                    {t.numeroLot ? (
+                      <span className="inline-flex items-center font-mono text-[11px] font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200">
+                        {t.numeroLot}
+                      </span>
+                    ) : (
+                      <span className="text-slate-300 text-xs">-</span>
+                    )}
                   </td>
                   <td className="border border-slate-200 px-3 sm:px-4 py-2.5 sm:py-3 text-right font-bold text-emerald-600 whitespace-nowrap">
                     {t.type === 'entree' ? `+${t.quantite}` : '-'}
@@ -992,7 +1039,7 @@ export default function FicheStock() {
 
               {displayTransactions.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-10 text-center text-slate-500">
+                  <td colSpan={7} className="px-6 py-10 text-center text-slate-500">
                     <p className="font-semibold text-slate-700">Aucun mouvement enregistré pour ce produit.</p>
                     <p className="text-xs text-slate-400 mt-1">
                       Le stock est actuellement vierge (0). Cliquez sur "Saisir Effectif Réel" pour inscrire votre inventaire.

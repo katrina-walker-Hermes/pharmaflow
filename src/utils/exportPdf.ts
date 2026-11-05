@@ -140,7 +140,7 @@ export function generateInventoryPdf(products: Product[], options: PdfExportOpti
     }
 
     const expiryStr = expiringEntry?.datePeremption
-      ? format(parseISO(expiringEntry.datePeremption), 'MM/yyyy')
+      ? `${format(parseISO(expiringEntry.datePeremption), 'MM/yyyy')}${expiringEntry.numeroLot ? ` (Lot: ${expiringEntry.numeroLot})` : ''}`
       : '-';
 
     return [
@@ -156,7 +156,7 @@ export function generateInventoryPdf(products: Product[], options: PdfExportOpti
 
   autoTable(doc, {
     startY: 61,
-    head: [['Catégorie', 'Désignation du Produit (* Important)', 'Stock', 'Sécurité', 'QMC', 'Péremption', 'Statut']],
+    head: [['Catégorie', 'Désignation du Produit (* Important)', 'Stock', 'Sécurité', 'QMC', 'Péremption & Lot', 'Statut']],
     body: tableRows,
     theme: 'grid',
     headStyles: {

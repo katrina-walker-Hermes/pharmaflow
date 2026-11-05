@@ -481,7 +481,7 @@ export default function Dashboard() {
                     <th scope="col" className="px-4 py-2.5 text-left">Médicament / Fiche de poste</th>
                     <th scope="col" className="px-4 py-2.5 text-center">Mouvement</th>
                     <th scope="col" className="px-4 py-2.5 text-left">Origine / Destination</th>
-                    <th scope="col" className="px-4 py-2.5 text-center">Péremption</th>
+                    <th scope="col" className="px-4 py-2.5 text-center">Péremption & Lot</th>
                     <th scope="col" className="px-4 py-2.5 text-right">Solde actuel</th>
                     <th scope="col" className="px-4 py-2.5 text-right">Action</th>
                   </tr>
@@ -532,14 +532,25 @@ export default function Dashboard() {
                         </td>
                         <td className="px-4 py-2.5 text-center whitespace-nowrap text-slate-500">
                           {tx.datePeremption ? (
-                            <span className="text-[11px] font-medium text-slate-600">
-                              {(() => {
-                                try {
-                                  return format(parseISO(tx.datePeremption), 'MM/yyyy');
-                                } catch {
-                                  return tx.datePeremption;
-                                }
-                              })()}
+                            <div className="flex flex-col items-center">
+                              <span className="text-[11px] font-bold text-slate-700">
+                                {(() => {
+                                  try {
+                                    return format(parseISO(tx.datePeremption), 'MM/yyyy');
+                                  } catch {
+                                    return tx.datePeremption;
+                                  }
+                                })()}
+                              </span>
+                              {tx.numeroLot && (
+                                <span className="inline-flex items-center text-[10px] font-mono font-semibold px-1.5 py-0.2 rounded bg-slate-100 text-slate-800 border border-slate-200 mt-0.5">
+                                  Lot: {tx.numeroLot}
+                                </span>
+                              )}
+                            </div>
+                          ) : tx.numeroLot ? (
+                            <span className="inline-flex items-center text-[10px] font-mono font-semibold px-1.5 py-0.2 rounded bg-slate-100 text-slate-800 border border-slate-200">
+                              Lot: {tx.numeroLot}
                             </span>
                           ) : (
                             <span className="text-slate-300">-</span>

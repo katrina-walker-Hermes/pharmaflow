@@ -18,12 +18,16 @@ import {
   Edit3,
   Save,
   AlertTriangle,
-  Loader2
+  Loader2,
+  Calendar,
+  AlertCircle,
+  CalendarCheck
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { clsx } from 'clsx';
 import { downloadOrderPdf } from '../utils/generateOrderPdf';
 import { sortProductsByCategoryAndName } from '../utils/categoryOrder';
+import { safeFormatDate } from '../utils/formatters';
 
 export default function Commandes() {
   const orders = useStore((state) => state.orders);
@@ -64,7 +68,10 @@ export default function Commandes() {
 
   // Receive modal state
   const [receiveModalOrder, setReceiveModalOrder] = useState<PharmacyOrder | null>(null);
-  const [receiptInputs, setReceiptInputs] = useState<Record<string, { qty: number; expiry: string }>>({});
+  const [receiptInputs, setReceiptInputs] = useState<Record<string, { qty: number; expiry: string; lot: string }>>({});
+  const [batchExpiryDate, setBatchExpiryDate] = useState<string>('');
+  const [batchLotNumber, setBatchLotNumber] = useState<string>('');
+  const [receiveError, setReceiveError] = useState<string | null>(null);
 
   // Filter orders
   const filteredOrders = orders.filter((o) => {
@@ -207,35 +214,113 @@ export default function Commandes() {
     triggerSuccessBanner(`Le bon de commande a été créé avec succès.`);
   };
 
+  const getFutureDateString = (yearsToAdd: number): string => {
+    const currentYear = new Date().getFullYear();
+    const futureDate = new Date(currentYear + yearsToAdd, 11, 31);
+    return futureDate.toISOString().split('T')[0];
+  };
+
+  const handleApplyBatchExpiry = (dateStr: string) => {
+    if (!dateStr || !receiveModalOrder) return;
+    const updated = { ...receiptInputs };
+    receiveModalOrder.items.forEach((it) => {
+      const curr = updated[it.productId] || { qty: it.quantiteDemandee, expiry: '', lot: '' };
+      updated[it.productId] = { ...curr, expiry: dateStr };
+    });
+    setReceiptInputs(updated);
+    setReceiveError(null);
+  };
+
+  const handleApplyBatchLot = (lotStr: string) => {
+    if (!lotStr.trim() || !receiveModalOrder) return;
+    const updated = { ...receiptInputs };
+    receiveModalOrder.items.forEach((it) => {
+      const curr = updated[it.productId] || { qty: it.quantiteDemandee, expiry: '', lot: '' };
+      updated[it.productId] = { ...curr, lot: lotStr.trim() };
+    });
+    setReceiptInputs(updated);
+  };
+
   const handleOpenReceiveModal = (order: PharmacyOrder) => {
-    const initialInputs: Record<string, { qty: number; expiry: string }> = {};
+    const initialInputs: Record<string, { qty: number; expiry: string; lot: string }> = {};
     order.items.forEach((it) => {
       initialInputs[it.productId] = {
         qty: it.quantiteDemandee,
-        expiry: '',
+        expiry: it.datePeremption ? it.datePeremption.split('T')[0] : '',
+        lot: it.numeroLot || '',
       };
     });
     setReceiptInputs(initialInputs);
+    setBatchExpiryDate('');
+    setBatchLotNumber('');
+    setReceiveError(null);
     setReceiveModalOrder(order);
   };
 
   const handleConfirmReceive = () => {
     if (!receiveModalOrder) return;
 
+    // Check if any product being received (qty > 0) is missing an expiration date
+    const missingExpiryItems: string[] = [];
+    receiveModalOrder.items.forEach((it) => {
+      const inp = receiptInputs[it.productId];
+      const qty = inp !== undefined ? Number(inp.qty) : it.quantiteDemandee;
+      if (qty > 0) {
+        if (!inp || !inp.expiry || !inp.expiry.trim()) {
+          missingExpiryItems.push(it.productName);
+        }
+      }
+    });
+
+    if (missingExpiryItems.length > 0) {
+      setReceiveError(
+        `Date de péremption obligatoire : Veuillez noter la date de péremption pour chaque produit réceptionné (${missingExpiryItems.length} article(s) non renseigné(s) : ${missingExpiryItems.slice(0, 3).join(', ')}${missingExpiryItems.length > 3 ? '...' : ''}). Cette information est indispensable pour la sécurité et la traçabilité dans les fiches de poste.`
+      );
+      return;
+    }
+
+    setReceiveError(null);
+
     const receipts = receiveModalOrder.items.map((it) => {
       const inp = receiptInputs[it.productId];
+      const qty = inp !== undefined ? Number(inp.qty) : it.quantiteDemandee;
+      let validIsoDate: string | undefined = undefined;
+      if (inp && inp.expiry) {
+        try {
+          const parsed = new Date(inp.expiry);
+          if (!isNaN(parsed.getTime())) {
+            validIsoDate = parsed.toISOString();
+          }
+        } catch {}
+      }
       return {
         productId: it.productId,
-        quantiteRecue: inp ? Number(inp.qty) : it.quantiteDemandee,
-        datePeremption: inp && inp.expiry ? new Date(inp.expiry).toISOString() : undefined,
+        quantiteRecue: qty,
+        datePeremption: validIsoDate,
+        numeroLot: inp?.lot?.trim() || undefined,
       };
     });
 
     receiveOrder(receiveModalOrder.id, receipts);
-    triggerSuccessBanner(`La commande ${receiveModalOrder.numeroCommande} a été réceptionnée. Les stocks ont été incrémentés.`);
+    triggerSuccessBanner(
+      `La commande ${receiveModalOrder.numeroCommande} a été réceptionnée avec succès ! Les numéros de lot et dates de péremption ont été consignés et les entrées inscrites dans les fiches de poste de la part de la Pharmacie hospitalière.`
+    );
     setReceiveModalOrder(null);
     if (selectedOrder && selectedOrder.id === receiveModalOrder.id) {
-      setSelectedOrder({ ...selectedOrder, statut: 'livree', dateReception: new Date().toISOString() });
+      setSelectedOrder({
+        ...selectedOrder,
+        statut: 'livree',
+        dateReception: new Date().toISOString(),
+        items: selectedOrder.items.map((it) => {
+          const r = receipts.find((x) => x.productId === it.productId);
+          return {
+            ...it,
+            quantiteRecue: r ? r.quantiteRecue : it.quantiteDemandee,
+            datePeremption: r?.datePeremption || it.datePeremption,
+            numeroLot: r?.numeroLot || it.numeroLot,
+          };
+        }),
+      });
     }
   };
 
@@ -954,6 +1039,12 @@ export default function Commandes() {
                       <th className="px-4 py-3 text-left">Catégorie</th>
                       <th className="px-4 py-3 text-right">Quantité Demandée</th>
                       <th className="px-4 py-3 text-right">Quantité Reçue</th>
+                      {selectedOrder.statut === 'livree' && (
+                        <>
+                          <th className="px-4 py-3 text-center">N° de Lot</th>
+                          <th className="px-4 py-3 text-center">Date de Péremption</th>
+                        </>
+                      )}
                       {isEditMode && <th className="px-3 py-3 text-center w-12">Action</th>}
                     </tr>
                   </thead>
@@ -983,6 +1074,29 @@ export default function Commandes() {
                         <td className="px-4 py-3 text-right font-bold text-teal-700">
                           {selectedOrder.statut === 'livree' ? (it.quantiteRecue ?? it.quantiteDemandee) : '-'}
                         </td>
+                        {selectedOrder.statut === 'livree' && (
+                          <>
+                            <td className="px-4 py-3 text-center whitespace-nowrap">
+                              {it.numeroLot ? (
+                                <span className="inline-flex items-center font-mono text-xs font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200">
+                                  {it.numeroLot}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 italic text-[11px]">-</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-center whitespace-nowrap">
+                              {it.datePeremption ? (
+                                <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-800 border border-blue-200">
+                                  <Calendar className="h-3 w-3 text-blue-600" />
+                                  {safeFormatDate(it.datePeremption, 'MM/yyyy')}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 italic text-[11px]">-</span>
+                              )}
+                            </td>
+                          </>
+                        )}
                         {isEditMode && (
                           <td className="px-3 py-3 text-center">
                             <button
@@ -1148,31 +1262,184 @@ export default function Commandes() {
       {receiveModalOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
           <div className="relative w-full max-w-2xl rounded-2xl bg-white p-6 shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-200 my-8">
-            <h3 className="text-base font-bold text-slate-900 mb-1">
-              Réception de la commande {receiveModalOrder.numeroCommande}
-            </h3>
-            <p className="text-xs text-slate-600 mb-4">
-              Vérifiez les quantités reçues et indiquez les dates de péremption des lots pour l'entrée automatique en stock.
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">
+                    Entrée Automatique en Fiche de Poste
+                  </span>
+                  <span className="text-xs text-slate-500 font-semibold">Origine : Pharmacie Hospitalière</span>
+                </div>
+                <h3 className="text-base sm:text-lg font-bold text-slate-900 mt-1">
+                  Réception de la commande {receiveModalOrder.numeroCommande}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReceiveModalOrder(null)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 mb-4 text-xs text-emerald-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-700 shrink-0" />
+                <p>
+                  Chaque produit réceptionné ci-dessous sera <strong>automatiquement consigné en entrée</strong> sur sa fiche de poste individuelle sous la mention <em>« Pharmacie hospitalière (BC N° {receiveModalOrder.numeroCommande}) »</em>.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const autoInputs: Record<string, { qty: number; expiry: string; lot: string }> = {};
+                  receiveModalOrder.items.forEach((it) => {
+                    autoInputs[it.productId] = {
+                      qty: it.quantiteDemandee,
+                      expiry: receiptInputs[it.productId]?.expiry || '',
+                      lot: receiptInputs[it.productId]?.lot || it.numeroLot || '',
+                    };
+                  });
+                  setReceiptInputs(autoInputs);
+                }}
+                className="inline-flex items-center justify-center gap-1 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-1.5 text-xs font-bold shrink-0 transition-colors shadow-2xs active:scale-95"
+              >
+                Tout conforme (100%)
+              </button>
+            </div>
+
+            {receiveError && (
+              <div className="rounded-xl border border-rose-300 bg-rose-50 p-3.5 mb-4 text-xs text-rose-900 flex items-start gap-2.5 animate-in fade-in duration-200">
+                <AlertCircle className="h-5 w-5 text-rose-600 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="font-bold text-rose-950">Date de péremption obligatoire</p>
+                  <p className="text-rose-800 mt-0.5 leading-relaxed">{receiveError}</p>
+                </div>
+              </div>
+            )}
+
+            <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-3 mb-4 text-xs text-blue-950">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <CalendarCheck className="h-4 w-4 text-blue-700 shrink-0" />
+                  <div>
+                    <span className="font-bold text-blue-950 block">Saisie rapide : Noter la date de péremption pour tout le lot</span>
+                    <span className="text-[11px] text-blue-800">Appliquez la même date de péremption à tous les articles en un clic :</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = getFutureDateString(1);
+                      setBatchExpiryDate(d);
+                      handleApplyBatchExpiry(d);
+                    }}
+                    className="rounded-lg bg-white border border-blue-300 text-blue-800 px-2.5 py-1 text-[11px] font-bold hover:bg-blue-100 shadow-2xs active:scale-95 transition-all"
+                    title="Appliquer +1 an"
+                  >
+                    +1 an
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = getFutureDateString(2);
+                      setBatchExpiryDate(d);
+                      handleApplyBatchExpiry(d);
+                    }}
+                    className="rounded-lg bg-white border border-blue-300 text-blue-800 px-2.5 py-1 text-[11px] font-bold hover:bg-blue-100 shadow-2xs active:scale-95 transition-all"
+                    title="Appliquer +2 ans"
+                  >
+                    +2 ans
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = getFutureDateString(3);
+                      setBatchExpiryDate(d);
+                      handleApplyBatchExpiry(d);
+                    }}
+                    className="rounded-lg bg-white border border-blue-300 text-blue-800 px-2.5 py-1 text-[11px] font-bold hover:bg-blue-100 shadow-2xs active:scale-95 transition-all"
+                    title="Appliquer +3 ans"
+                  >
+                    +3 ans
+                  </button>
+                </div>
+              </div>
+              <div className="mt-2.5 pt-2 border-t border-blue-200/70 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] font-bold text-blue-900">Date globale :</span>
+                  <input
+                    type="date"
+                    value={batchExpiryDate}
+                    onChange={(e) => setBatchExpiryDate(e.target.value)}
+                    className="rounded-lg border border-blue-300 bg-white px-2.5 py-1 text-xs text-slate-800 outline-none focus:border-blue-600"
+                  />
+                  <button
+                    type="button"
+                    disabled={!batchExpiryDate}
+                    onClick={() => handleApplyBatchExpiry(batchExpiryDate)}
+                    className="rounded-lg bg-blue-700 hover:bg-blue-800 disabled:opacity-40 disabled:pointer-events-none text-white px-3 py-1 text-xs font-bold shadow-2xs transition-all active:scale-95"
+                  >
+                    Appliquer Date
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] font-bold text-blue-900">N° de Lot global :</span>
+                  <input
+                    type="text"
+                    placeholder="Ex: LOT-2026-BC"
+                    value={batchLotNumber}
+                    onChange={(e) => setBatchLotNumber(e.target.value)}
+                    className="w-32 rounded-lg border border-blue-300 bg-white px-2.5 py-1 text-xs font-mono text-slate-800 outline-none focus:border-blue-600"
+                  />
+                  <button
+                    type="button"
+                    disabled={!batchLotNumber.trim()}
+                    onClick={() => handleApplyBatchLot(batchLotNumber)}
+                    className="rounded-lg bg-slate-800 hover:bg-slate-900 disabled:opacity-40 disabled:pointer-events-none text-white px-3 py-1 text-xs font-bold shadow-2xs transition-all active:scale-95"
+                  >
+                    Appliquer Lot
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 mb-2 font-medium">
+              Vérifiez les quantités livrées et notez le numéro de lot et la date de péremption inscrits sur les emballages :
             </p>
 
             <div className="border border-slate-200 rounded-xl overflow-hidden mb-5 max-h-72 overflow-y-auto">
               <table className="min-w-full divide-y divide-slate-200 text-xs">
-                <thead className="bg-slate-50 font-bold text-slate-600">
+                <thead className="bg-slate-50 font-bold text-slate-700">
                   <tr>
-                    <th className="px-3 py-2 text-left">Produit</th>
-                    <th className="px-3 py-2 text-center w-24">Qté Demandée</th>
-                    <th className="px-3 py-2 text-center w-28">Qté Reçue</th>
-                    <th className="px-3 py-2 text-center w-36">Péremption</th>
+                    <th className="px-3 py-2.5 text-left">Produit</th>
+                    <th className="px-3 py-2.5 text-center w-24">Qté Demandée</th>
+                    <th className="px-3 py-2.5 text-center w-28">Qté Reçue</th>
+                    <th className="px-3 py-2.5 text-center w-36">N° de Lot</th>
+                    <th className="px-3 py-2.5 text-center w-48">
+                      <div className="flex items-center justify-center gap-1">
+                        <Calendar className="h-3.5 w-3.5 text-rose-600" />
+                        <span>Date Péremption</span>
+                        <span className="text-[10px] text-rose-600 font-extrabold">*</span>
+                      </div>
+                    </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-100 bg-white">
                   {receiveModalOrder.items.map((it) => {
-                    const inp = receiptInputs[it.productId] || { qty: it.quantiteDemandee, expiry: '' };
+                    const inp = receiptInputs[it.productId] || { qty: it.quantiteDemandee, expiry: '', lot: '' };
+                    const isMissingExpiry = (inp.qty > 0) && (!inp.expiry || !inp.expiry.trim());
                     return (
-                      <tr key={it.productId}>
-                        <td className="px-3 py-2 font-medium text-slate-800">{it.productName}</td>
-                        <td className="px-3 py-2 text-center text-slate-500">{it.quantiteDemandee}</td>
-                        <td className="px-3 py-2 text-center">
+                      <tr key={it.productId} className={clsx("transition-colors", isMissingExpiry && receiveError ? "bg-rose-50/40" : "hover:bg-slate-50")}>
+                        <td className="px-3 py-2.5">
+                          <span className="font-semibold text-slate-900 block">{it.productName}</span>
+                          <span className="text-[10px] text-slate-400 block">{it.category}</span>
+                        </td>
+                        <td className="px-3 py-2.5 text-center text-slate-500 font-semibold">{it.quantiteDemandee}</td>
+                        <td className="px-3 py-2.5 text-center">
                           <input
                             type="number"
                             min="0"
@@ -1182,22 +1449,57 @@ export default function Commandes() {
                                 ...receiptInputs,
                                 [it.productId]: { ...inp, qty: parseInt(e.target.value) || 0 },
                               });
+                              if (receiveError) setReceiveError(null);
                             }}
                             className="w-20 rounded border border-slate-300 px-2 py-1 text-center font-bold text-slate-900 outline-none focus:border-teal-600"
                           />
                         </td>
-                        <td className="px-3 py-2 text-center">
+                        <td className="px-3 py-2.5 text-center">
                           <input
-                            type="date"
-                            value={inp.expiry}
+                            type="text"
+                            placeholder="Ex: LOT-45892"
+                            value={inp.lot || ''}
                             onChange={(e) => {
                               setReceiptInputs({
                                 ...receiptInputs,
-                                [it.productId]: { ...inp, expiry: e.target.value },
+                                [it.productId]: { ...inp, lot: e.target.value },
                               });
                             }}
-                            className="rounded border border-slate-300 px-2 py-1 text-xs outline-none focus:border-teal-600"
+                            className="w-28 rounded border border-slate-300 px-2 py-1 text-xs text-center font-mono outline-none focus:border-teal-600"
                           />
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          <div className="inline-flex flex-col items-center">
+                            <input
+                              type="date"
+                              required={inp.qty > 0}
+                              value={inp.expiry}
+                              onChange={(e) => {
+                                setReceiptInputs({
+                                  ...receiptInputs,
+                                  [it.productId]: { ...inp, expiry: e.target.value },
+                                });
+                                if (receiveError) setReceiveError(null);
+                              }}
+                              className={clsx(
+                                "rounded border px-2 py-1 text-xs outline-none transition-all w-36",
+                                isMissingExpiry && receiveError
+                                  ? "border-rose-500 bg-rose-50 text-rose-900 ring-2 ring-rose-200 font-bold"
+                                  : isMissingExpiry
+                                  ? "border-amber-400 bg-amber-50/40 text-slate-800 focus:border-teal-600"
+                                  : "border-emerald-400 bg-emerald-50/30 text-emerald-950 font-bold focus:border-emerald-600"
+                              )}
+                            />
+                            {isMissingExpiry ? (
+                              <span className="text-[10px] text-amber-700 font-semibold mt-0.5">
+                                * Date requise
+                              </span>
+                            ) : inp.expiry ? (
+                              <span className="text-[10px] text-emerald-700 font-bold mt-0.5">
+                                ✓ Exp : {safeFormatDate(inp.expiry, 'MM/yyyy')}
+                              </span>
+                            ) : null}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1206,21 +1508,27 @@ export default function Commandes() {
               </table>
             </div>
 
-            <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
-              <button
-                type="button"
-                onClick={() => setReceiveModalOrder(null)}
-                className="rounded-lg px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100"
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmReceive}
-                className="rounded-lg bg-emerald-600 px-5 py-2 text-xs font-bold text-white hover:bg-emerald-700 shadow-xs"
-              >
-                Valider l'entrée en stock
-              </button>
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-100 pt-3">
+              <span className="text-[11px] text-slate-500 italic">
+                * Les numéros de lot et dates de péremption notés seront reportés automatiquement sur chaque fiche de poste et dans le calendrier de péremption.
+              </span>
+              <div className="flex items-center gap-2 self-end sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setReceiveModalOrder(null)}
+                  className="rounded-lg px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmReceive}
+                  className="rounded-lg bg-emerald-700 px-5 py-2 text-xs font-bold text-white hover:bg-emerald-800 shadow-xs flex items-center gap-1.5 active:scale-95 transition-all"
+                >
+                  <Check className="h-4 w-4" />
+                  Valider la réception & Enregistrer les dates
+                </button>
+              </div>
             </div>
           </div>
         </div>

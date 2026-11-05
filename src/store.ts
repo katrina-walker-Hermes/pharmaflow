@@ -11,6 +11,7 @@ export interface Transaction {
   quantite: number;
   origineDestination: string;
   datePeremption?: string;
+  numeroLot?: string;
 }
 
 export interface Product {
@@ -30,6 +31,8 @@ export interface OrderItem {
   category: string;
   quantiteDemandee: number;
   quantiteRecue?: number;
+  datePeremption?: string;
+  numeroLot?: string;
 }
 
 export type OrderStatus = 'brouillon' | 'en_cours' | 'livree' | 'annulee';
@@ -49,7 +52,7 @@ export interface PharmacyOrder {
   commentaires?: string;
 }
 
-export const ENTREE_ORIGINES = ['Pharmacie Centrale', 'Échange'] as const;
+export const ENTREE_ORIGINES = ['Pharmacie hospitalière', 'Pharmacie Centrale', 'Échange'] as const;
 export type EntreeOrigine = typeof ENTREE_ORIGINES[number];
 
 export const SORTIE_DESTINATIONS = ['Service', 'Décharge périmé', 'Perte'] as const;
@@ -91,6 +94,7 @@ interface NewProductInput {
   enRuptureHopital: boolean;
   initialStock?: number;
   initialDatePeremption?: string;
+  initialNumeroLot?: string;
   initialOrigine?: string;
 }
 
@@ -107,7 +111,7 @@ interface AppState {
   addTransaction: (productId: string, transaction: Omit<Transaction, 'id'>) => void;
   deleteTransaction: (productId: string, transactionId: string) => void;
   resetAllStocksToBlank: () => void;
-  setInitialProductStock: (productId: string, quantite: number, datePeremption?: string, origine?: string) => void;
+  setInitialProductStock: (productId: string, quantite: number, datePeremption?: string, origine?: string, numeroLot?: string) => void;
   seedDatabase: () => void;
   
   // Order actions
@@ -117,7 +121,7 @@ interface AppState {
   updateOrderItems: (orderId: string, items: OrderItem[]) => void;
   cancelOrder: (id: string, motif?: string) => void;
   resumeCancelledOrder: (id: string) => void;
-  receiveOrder: (id: string, receipts?: { productId: string; quantiteRecue: number; datePeremption?: string }[]) => void;
+  receiveOrder: (id: string, receipts?: { productId: string; quantiteRecue: number; datePeremption?: string; numeroLot?: string }[]) => void;
   deleteOrder: (id: string) => void;
 
   // Le Bon Danger actions (Fentanyl 100 µg & 500 µg)
@@ -151,6 +155,7 @@ export const useStore = create<AppState>()(
             quantite: Number(input.initialStock) || 0,
             origineDestination: input.initialOrigine || 'Inventaire initial',
             datePeremption: input.initialDatePeremption || undefined,
+            numeroLot: input.initialNumeroLot?.trim() || undefined,
           });
         }
 
@@ -216,7 +221,7 @@ export const useStore = create<AppState>()(
         }))
       })),
 
-      setInitialProductStock: (productId, quantite, datePeremption, origine) => set((state) => ({
+      setInitialProductStock: (productId, quantite, datePeremption, origine, numeroLot) => set((state) => ({
         products: state.products.map(p => {
           if (p.id === productId) {
             const newTransactions: Transaction[] = quantite > 0 ? [{
@@ -226,6 +231,7 @@ export const useStore = create<AppState>()(
               quantite: Number(quantite) || 0,
               origineDestination: origine || 'Inventaire initial',
               datePeremption: datePeremption || undefined,
+              numeroLot: numeroLot?.trim() || undefined,
             }] : [];
 
             return {
@@ -258,9 +264,16 @@ export const useStore = create<AppState>()(
         return id;
       },
 
-      updateOrder: (id, updates) => set((state) => ({
-        orders: state.orders.map(o => o.id === id ? { ...o, ...updates } : o)
-      })),
+      updateOrder: (id, updates) => {
+        const order = get().orders.find(o => o.id === id);
+        if (updates.statut === 'livree' && order && order.statut !== 'livree') {
+          get().receiveOrder(id);
+          return;
+        }
+        set((state) => ({
+          orders: state.orders.map(o => o.id === id ? { ...o, ...updates } : o)
+        }));
+      },
 
       updateOrderItemQuantity: (orderId, productId, quantiteDemandee) => set((state) => ({
         orders: state.orders.map((o) => {
@@ -312,41 +325,60 @@ export const useStore = create<AppState>()(
         const order = get().orders.find(o => o.id === id);
         if (!order) return;
 
-        // Apply incoming stocks into each product's fiche de stock
+        // Automatically record incoming items in the respective fiches de poste / fiches de stock
         set((state) => {
           let updatedProducts = [...state.products];
+          const receptionDateIso = new Date().toISOString();
 
           const itemsToReceive = receipts && receipts.length > 0 
             ? receipts 
             : order.items.map(it => ({
                 productId: it.productId,
                 quantiteRecue: it.quantiteDemandee,
-                datePeremption: undefined
+                datePeremption: it.datePeremption,
+                numeroLot: it.numeroLot,
               }));
 
           itemsToReceive.forEach(rec => {
             const qty = Number(rec.quantiteRecue) || 0;
             if (qty > 0) {
-              updatedProducts = updatedProducts.map(p => {
-                if (p.id === rec.productId) {
-                  const currentTrans = Array.isArray(p.transactions) ? p.transactions : [];
-                  return {
-                    ...p,
-                    transactions: [
-                      ...currentTrans,
-                      {
-                        id: uuidv4(),
-                        date: new Date().toISOString(),
-                        type: 'entree',
-                        quantite: qty,
-                        origineDestination: `Commande ${order.numeroCommande} (Pharmacie Centrale)`,
-                        datePeremption: rec.datePeremption || undefined,
-                      }
-                    ]
-                  };
-                }
-                return p;
-              });
+              const orderItem = order.items.find(it => it.productId === rec.productId);
+              const prodIndex = updatedProducts.findIndex(p => 
+                p.id === rec.productId || 
+                (orderItem && p.name.trim().toLowerCase() === orderItem.productName.trim().toLowerCase())
+              );
+
+              // Exactly as requested: entry into fiche de poste from the hospital pharmacy with lot and expiration date
+              const entryTransaction: Transaction = {
+                id: uuidv4(),
+                date: receptionDateIso,
+                type: 'entree',
+                quantite: qty,
+                origineDestination: `Pharmacie hospitalière (BC N° ${order.numeroCommande})`,
+                datePeremption: rec.datePeremption || undefined,
+                numeroLot: rec.numeroLot?.trim() || undefined,
+              };
+
+              if (prodIndex >= 0) {
+                const p = updatedProducts[prodIndex];
+                const currentTrans = Array.isArray(p.transactions) ? p.transactions : [];
+                updatedProducts[prodIndex] = {
+                  ...p,
+                  transactions: [...currentTrans, entryTransaction]
+                };
+              } else if (orderItem) {
+                // If product was somehow deleted or not yet present, automatically create its fiche de poste
+                updatedProducts.push({
+                  id: rec.productId,
+                  name: orderItem.productName,
+                  category: normalizeCategoryName(orderItem.category),
+                  isImportant: true,
+                  stockSecurite: 5,
+                  quantiteMoyenneMensuelle: 0,
+                  enRuptureHopital: false,
+                  transactions: [entryTransaction]
+                });
+              }
             }
           });
 
@@ -355,12 +387,14 @@ export const useStore = create<AppState>()(
               return {
                 ...o,
                 statut: 'livree' as OrderStatus,
-                dateReception: new Date().toISOString(),
+                dateReception: receptionDateIso,
                 items: o.items.map(it => {
                   const r = itemsToReceive.find(x => x.productId === it.productId);
                   return {
                     ...it,
-                    quantiteRecue: r ? r.quantiteRecue : it.quantiteDemandee
+                    quantiteRecue: r ? r.quantiteRecue : it.quantiteDemandee,
+                    datePeremption: r?.datePeremption || it.datePeremption,
+                    numeroLot: r?.numeroLot?.trim() || it.numeroLot,
                   };
                 })
               };

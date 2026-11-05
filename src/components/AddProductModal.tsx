@@ -37,6 +37,7 @@ export default function AddProductModal({
   const [hasInitialStock, setHasInitialStock] = useState(false);
   const [initialStock, setInitialStock] = useState<number>(0);
   const [initialDatePeremption, setInitialDatePeremption] = useState('');
+  const [initialNumeroLot, setInitialNumeroLot] = useState('');
   const [initialOrigine, setInitialOrigine] = useState('Inventaire initial');
   const [error, setError] = useState('');
 
@@ -76,6 +77,7 @@ export default function AddProductModal({
       enRuptureHopital,
       initialStock: hasInitialStock && initialStock > 0 ? Number(initialStock) : undefined,
       initialDatePeremption: hasInitialStock && initialDatePeremption ? new Date(initialDatePeremption).toISOString() : undefined,
+      initialNumeroLot: hasInitialStock && initialNumeroLot.trim() ? initialNumeroLot.trim() : undefined,
       initialOrigine: hasInitialStock ? initialOrigine : undefined,
     });
 
@@ -86,6 +88,7 @@ export default function AddProductModal({
     setHasInitialStock(false);
     setInitialStock(0);
     setInitialDatePeremption('');
+    setInitialNumeroLot('');
     if (onProductAdded) onProductAdded();
     onClose();
   };
@@ -252,7 +255,7 @@ export default function AddProductModal({
             </div>
 
             {hasInitialStock && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2">
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1">Quantité comptée</label>
                   <input
@@ -262,6 +265,16 @@ export default function AddProductModal({
                     value={initialStock || ''}
                     onChange={(e) => setInitialStock(parseInt(e.target.value) || 0)}
                     className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 outline-none focus:border-teal-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">N° de Lot</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: LOT-2026-X1"
+                    value={initialNumeroLot}
+                    onChange={(e) => setInitialNumeroLot(e.target.value)}
+                    className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 outline-none focus:border-teal-600 font-mono"
                   />
                 </div>
                 <div>
