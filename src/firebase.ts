@@ -4,6 +4,11 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signOut,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updateProfile,
+  sendEmailVerification,
+  sendPasswordResetEmail,
   User,
 } from 'firebase/auth';
 import {
@@ -109,6 +114,32 @@ function stripUndefined<T>(value: T): T {
 
 export async function signInWithGooglePopup() {
   return signInWithPopup(auth, googleProvider);
+}
+
+export async function signUpWithPharmaFlowEmail(
+  fullName: string,
+  email: string,
+  password: string
+) {
+  const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
+  const cleanName = fullName.trim().slice(0, 120);
+  if (cleanName) {
+    await updateProfile(cred.user, { displayName: cleanName });
+  }
+  await sendEmailVerification(cred.user);
+  return cred;
+}
+
+export async function signInWithPharmaFlowEmail(email: string, password: string) {
+  return signInWithEmailAndPassword(auth, email.trim(), password);
+}
+
+export async function resendVerificationEmail(user: User) {
+  return sendEmailVerification(user);
+}
+
+export async function sendPharmaFlowPasswordReset(email: string) {
+  return sendPasswordResetEmail(auth, email.trim());
 }
 
 export async function signOutGoogle() {

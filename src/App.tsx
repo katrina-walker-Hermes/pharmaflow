@@ -14,18 +14,18 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import GmailLoginScreen from './components/GmailLoginScreen';
 
 function AppRoutes() {
-  const { user, authReady } = useAuth();
+  const { user, authReady, allowLocalAccess } = useAuth();
 
   if (!authReady) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center gap-3 text-slate-600">
         <Loader2 className="h-8 w-8 animate-spin text-teal-700" />
-        <span className="text-xs font-semibold">Vérification de la session Gmail...</span>
+        <span className="text-xs font-semibold">Vérification de la session PharmaFlow...</span>
       </div>
     );
   }
 
-  if (!user) {
+  if (!user || (!user.emailVerified && !allowLocalAccess)) {
     return <GmailLoginScreen />;
   }
 

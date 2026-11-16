@@ -35,7 +35,7 @@ export default function Layout() {
   const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
   const [isJsonBackupOpen, setIsJsonBackupOpen] = useState(false);
   const location = useLocation();
-  const { user, isSyncing, syncNow, signOutUser } = useAuth();
+  const { user, isSyncing, syncNow, signOutUser, refreshEmailVerification } = useAuth();
 
   const orders = useStore((state) => state.orders);
   const cancelledOrdersCount = orders.filter((o) => o.statut === 'annulee').length;
@@ -222,20 +222,32 @@ export default function Layout() {
               </div>
 
               <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  disabled={isSyncing}
-                  onClick={() => syncNow()}
-                  className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-teal-800/90 hover:bg-teal-700 text-teal-100 px-2 py-1.5 text-[10px] font-semibold transition-colors disabled:opacity-60"
-                  title="Synchroniser le stock avec votre compte Gmail"
-                >
-                  {isSyncing ? (
-                    <RefreshCw className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Cloud className="h-3 w-3 text-teal-300" />
-                  )}
-                  <span>{isSyncing ? 'Sync...' : 'Sync Cloud'}</span>
-                </button>
+                {user.emailVerified ? (
+                  <button
+                    type="button"
+                    disabled={isSyncing}
+                    onClick={() => syncNow()}
+                    className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-teal-800/90 hover:bg-teal-700 text-teal-100 px-2 py-1.5 text-[10px] font-semibold transition-colors disabled:opacity-60"
+                    title="Synchroniser le stock avec votre compte PharmaFlow"
+                  >
+                    {isSyncing ? (
+                      <RefreshCw className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Cloud className="h-3 w-3 text-teal-300" />
+                    )}
+                    <span>{isSyncing ? 'Sync...' : 'Sync Cloud'}</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => refreshEmailVerification()}
+                    className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-amber-600/90 hover:bg-amber-500 text-white px-2 py-1.5 text-[10px] font-semibold transition-colors"
+                    title="Actualiser après avoir cliqué sur le lien reçu par e-mail"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    <span>Vérifier e-mail</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => signOutUser()}
