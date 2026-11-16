@@ -4,6 +4,7 @@ import { Product, getCurrentStock } from '../store';
 import { format, parseISO } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { sortProductsByCategoryAndName } from './categoryOrder';
+import { formatUnitDisplay } from '../components/UnitPicker';
 
 export interface PdfExportOptions {
   monthName: string;
@@ -146,7 +147,7 @@ export function generateInventoryPdf(products: Product[], options: PdfExportOpti
     return [
       p.category,
       p.name + (p.isImportant ? ' *' : ''),
-      String(stock),
+      `${stock} ${formatUnitDisplay(p.unite)}`,
       String(p.stockSecurite),
       String(p.quantiteMoyenneMensuelle),
       expiryStr,
@@ -156,7 +157,7 @@ export function generateInventoryPdf(products: Product[], options: PdfExportOpti
 
   autoTable(doc, {
     startY: 61,
-    head: [['Catégorie', 'Désignation du Produit (* Important)', 'Stock', 'Sécurité', 'QMC', 'Péremption & Lot', 'Statut']],
+    head: [['Catégorie', 'Désignation du Produit (* Important)', 'Stock / Unité', 'Sécurité', 'QMC', 'Péremption & Lot', 'Statut']],
     body: tableRows,
     theme: 'grid',
     headStyles: {
@@ -172,12 +173,12 @@ export function generateInventoryPdf(products: Product[], options: PdfExportOpti
       cellPadding: 1.8,
     },
     columnStyles: {
-      0: { cellWidth: 38, fontStyle: 'bold' },
-      1: { cellWidth: 55 },
-      2: { cellWidth: 16, halign: 'right', fontStyle: 'bold' },
+      0: { cellWidth: 36, fontStyle: 'bold' },
+      1: { cellWidth: 47 },
+      2: { cellWidth: 24, halign: 'right', fontStyle: 'bold' },
       3: { cellWidth: 16, halign: 'right' },
       4: { cellWidth: 14, halign: 'right' },
-      5: { cellWidth: 20, halign: 'center' },
+      5: { cellWidth: 22, halign: 'center' },
       6: { cellWidth: 23, halign: 'center', fontStyle: 'bold' },
     },
     didParseCell: (data) => {

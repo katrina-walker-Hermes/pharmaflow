@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { useStore, getCurrentStock, Product, ENTREE_ORIGINES, SORTIE_DESTINATIONS } from '../store';
+import { useStore, getCurrentStock, Product, Transaction, ENTREE_ORIGINES, SORTIE_DESTINATIONS } from '../store';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, 
@@ -22,6 +22,7 @@ import {
 import { clsx } from 'clsx';
 import { safeDecode, safeFormatDate, safeTimestamp } from '../utils/formatters';
 import { sortCategories, sortProductsByCategoryAndName } from '../utils/categoryOrder';
+import UnitPicker, { formatUnitDisplay } from '../components/UnitPicker';
 
 export default function FicheStock() {
   const { productId } = useParams<{ productId: string }>();
@@ -30,6 +31,8 @@ export default function FicheStock() {
   const products = useStore((state) => state.products);
   const seedDatabase = useStore((state) => state.seedDatabase);
   const addTransaction = useStore((state) => state.addTransaction);
+  const updateTransaction = useStore((state) => state.updateTransaction);
+  const deleteTransaction = useStore((state) => state.deleteTransaction);
   const updateProduct = useStore((state) => state.updateProduct);
   const deleteProduct = useStore((state) => state.deleteProduct);
   const setInitialProductStock = useStore((state) => state.setInitialProductStock);
@@ -103,6 +106,7 @@ export default function FicheStock() {
   
   // Movement form state
   const [quantite, setQuantite] = useState<string>('');
+  const [txUnite, setTxUnite] = useState<string>('Unité');
   const [origineDestination, setOrigineDestination] = useState<string>('');
   const [datePeremption, setDatePeremption] = useState<string>('');
   const [numeroLot, setNumeroLot] = useState<string>('');
@@ -116,12 +120,14 @@ export default function FicheStock() {
 
   // Initial Inventory state
   const [inventoryCount, setInventoryCount] = useState<string>('');
+  const [inventoryUnite, setInventoryUnite] = useState<string>('Unité');
   const [inventoryExpiry, setInventoryExpiry] = useState<string>('');
   const [inventoryLot, setInventoryLot] = useState<string>('');
 
   // Edit product state
   const [editName, setEditName] = useState('');
   const [editCategory, setEditCategory] = useState('');
+  const [editUnite, setEditUnite] = useState('Unité');
   const [customEditCategory, setCustomEditCategory] = useState('');
   const [isCustomCat, setIsCustomCat] = useState(false);
   const [editStockSecurite, setEditStockSecurite] = useState(0);
@@ -129,15 +135,33 @@ export default function FicheStock() {
   const [editIsImportant, setEditIsImportant] = useState(true);
   const [editEnRupture, setEditEnRupture] = useState(false);
 
+  // Edit / Delete individual transaction row state
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+  const [editTxType, setEditTxType] = useState<'entree' | 'sortie'>('entree');
+  const [editTxDate, setEditTxDate] = useState<string>('');
+  const [editTxQty, setEditTxQty] = useState<string>('');
+  const [editTxUnite, setEditTxUnite] = useState<string>('Unité');
+  const [editTxOrigineDest, setEditTxOrigineDest] = useState<string>('');
+  const [editTxLot, setEditTxLot] = useState<string>('');
+  const [editTxExpiry, setEditTxExpiry] = useState<string>('');
+  const [txToDelete, setTxToDelete] = useState<Transaction | null>(null);
+
   // Sync edit state whenever activeProduct changes
   useEffect(() => {
     if (activeProduct) {
+      const unitVal = activeProduct.unite || 'Unité';
       setEditName(activeProduct.name || '');
       setEditCategory(activeProduct.category || '');
+      setEditUnite(unitVal);
+      setTxUnite(unitVal);
+      setInventoryUnite(unitVal);
+      setIsCustomCat(false);
       setEditStockSecurite(activeProduct.stockSecurite || 0);
       setEditQmc(activeProduct.quantiteMoyenneMensuelle || 0);
       setEditIsImportant(activeProduct.isImportant ?? true);
       setEditEnRupture(activeProduct.enRuptureHopital ?? false);
+      setEditingTx(null);
+      setTxToDelete(null);
     }
   }, [activeProduct]);
 
@@ -218,6 +242,7 @@ export default function FicheStock() {
     addTransaction(activeProduct.id, {
       type: activeAction as 'entree' | 'sortie',
       quantite: qtyNum,
+      unite: txUnite.trim() || activeProduct.unite || 'Unité',
       origineDestination: origineDestination.trim(),
       date: validDateIso,
       ...(validExpiryIso ? { datePeremption: validExpiryIso } : {}),
@@ -229,6 +254,7 @@ export default function FicheStock() {
     setOrigineDestination('');
     setDatePeremption('');
     setNumeroLot('');
+    setTxUnite(activeProduct.unite || 'Unité');
   };
 
   const handleInventorySubmit = (e: React.FormEvent) => {
@@ -251,7 +277,8 @@ export default function FicheStock() {
       count,
       validExpiryIso,
       'Inventaire initial',
-      inventoryLot.trim() || undefined
+      inventoryLot.trim() || undefined,
+      inventoryUnite.trim() || activeProduct.unite || 'Unité'
     );
     setActiveAction(null);
     setInventoryCount('');
@@ -267,12 +294,80 @@ export default function FicheStock() {
     updateProduct(activeProduct.id, {
       name: editName.trim(),
       category: finalCat,
+      unite: editUnite.trim() || 'Unité',
       stockSecurite: Number(editStockSecurite) || 0,
       quantiteMoyenneMensuelle: Number(editQmc) || 0,
       isImportant: editIsImportant,
       enRuptureHopital: editEnRupture,
     });
     setActiveAction(null);
+  };
+
+  const toDateInputVal = (iso?: string): string => {
+    if (!iso) return '';
+    try {
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      return d.toISOString().split('T')[0];
+    } catch {
+      return '';
+    }
+  };
+
+  const openEditTransactionModal = (t: Transaction) => {
+    setEditingTx(t);
+    setEditTxType(t.type);
+    setEditTxDate(toDateInputVal(t.date));
+    setEditTxQty(String(t.quantite ?? ''));
+    setEditTxUnite(t.unite || activeProduct.unite || 'Unité');
+    setEditTxOrigineDest(t.origineDestination || '');
+    setEditTxLot(t.numeroLot || '');
+    setEditTxExpiry(toDateInputVal(t.datePeremption));
+  };
+
+  const handleUpdateTransactionSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTx) return;
+    const qtyNum = parseInt(editTxQty, 10);
+    if (isNaN(qtyNum) || qtyNum <= 0 || !editTxOrigineDest.trim()) return;
+
+    let validDateIso = editingTx.date;
+    if (editTxDate) {
+      try {
+        const parsed = new Date(editTxDate);
+        if (!isNaN(parsed.getTime())) {
+          validDateIso = parsed.toISOString();
+        }
+      } catch {}
+    }
+
+    let validExpiryIso: string | undefined = undefined;
+    if (editTxExpiry) {
+      try {
+        const parsedExp = new Date(editTxExpiry);
+        if (!isNaN(parsedExp.getTime())) {
+          validExpiryIso = parsedExp.toISOString();
+        }
+      } catch {}
+    }
+
+    updateTransaction(activeProduct.id, editingTx.id, {
+      type: editTxType,
+      date: validDateIso,
+      quantite: qtyNum,
+      unite: editTxUnite.trim() || activeProduct.unite || 'Unité',
+      origineDestination: editTxOrigineDest.trim(),
+      numeroLot: editTxLot.trim() || undefined,
+      datePeremption: validExpiryIso,
+    });
+
+    setEditingTx(null);
+  };
+
+  const confirmDeleteTransaction = () => {
+    if (!txToDelete) return;
+    deleteTransaction(activeProduct.id, txToDelete.id);
+    setTxToDelete(null);
   };
 
   const confirmDelete = () => {
@@ -392,6 +487,8 @@ export default function FicheStock() {
               onClick={() => {
                 setEditName(activeProduct.name || '');
                 setEditCategory(activeProduct.category || '');
+                setEditUnite(activeProduct.unite || 'Unité');
+                setIsCustomCat(false);
                 setEditStockSecurite(activeProduct.stockSecurite || 0);
                 setEditQmc(activeProduct.quantiteMoyenneMensuelle || 0);
                 setEditIsImportant(activeProduct.isImportant ?? true);
@@ -532,13 +629,20 @@ export default function FicheStock() {
         </div>
 
         {/* Product Official Spec Header */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 p-3.5 sm:p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm">
-          <div className="col-span-2 sm:col-span-1">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 p-3.5 sm:p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm">
+          <div className="col-span-2 lg:col-span-1">
             <span className="text-[10px] sm:text-xs text-slate-500 font-semibold uppercase block">Médicament / Matériel</span>
             <span className={clsx("font-bold text-sm sm:text-base leading-tight block mt-0.5", activeProduct.isImportant ? "text-red-600" : "text-slate-900")}>
               {activeProduct.name}
             </span>
             <span className="text-[11px] text-slate-500 block">{activeProduct.category}</span>
+          </div>
+
+          <div>
+            <span className="text-[10px] sm:text-xs text-slate-500 font-semibold uppercase block">Unité</span>
+            <span className="inline-flex items-center rounded-md bg-teal-100/80 text-teal-900 border border-teal-200 px-2 py-0.5 font-bold text-xs sm:text-sm mt-1">
+              {formatUnitDisplay(activeProduct.unite)}
+            </span>
           </div>
 
           <div>
@@ -585,7 +689,9 @@ export default function FicheStock() {
                 )}>
                   {stock}
                 </span>
-                <span className="text-xs text-teal-700 font-medium">unités en réserve</span>
+                <span className="text-xs text-teal-800 font-semibold">
+                  {formatUnitDisplay(activeProduct.unite)} en réserve
+                </span>
               </div>
             </div>
           </div>
@@ -595,6 +701,7 @@ export default function FicheStock() {
               type="button"
               onClick={() => {
                 setInventoryCount(stock > 0 ? stock.toString() : '');
+                setInventoryUnite(activeProduct.unite || 'Unité');
                 setActiveAction('inventaire');
               }}
               className="flex items-center justify-center gap-2 rounded-xl bg-teal-700 px-3.5 py-2.5 text-xs font-bold text-white hover:bg-teal-800 transition-all shadow-xs active:scale-95"
@@ -608,6 +715,7 @@ export default function FicheStock() {
                 type="button"
                 onClick={() => {
                   setOrigineDestination('Pharmacie Centrale');
+                  setTxUnite(activeProduct.unite || 'Unité');
                   setActiveAction('entree');
                 }}
                 className="flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 transition-all shadow-xs active:scale-95"
@@ -620,6 +728,7 @@ export default function FicheStock() {
                 type="button"
                 onClick={() => {
                   setOrigineDestination('Service');
+                  setTxUnite(activeProduct.unite || 'Unité');
                   setActiveAction('sortie');
                 }}
                 className="flex items-center justify-center gap-1.5 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-rose-700 transition-all shadow-xs active:scale-95"
@@ -714,6 +823,15 @@ export default function FicheStock() {
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-teal-600 focus:ring-2 focus:ring-teal-100 outline-none"
               />
             </div>
+          </div>
+
+          <div className="pt-1">
+            <UnitPicker
+              label="Unité de conditionnement"
+              value={inventoryUnite}
+              onChange={setInventoryUnite}
+              compact
+            />
           </div>
 
           <div className="flex justify-end gap-2 sm:gap-3 pt-2">
@@ -855,6 +973,15 @@ export default function FicheStock() {
                 </div>
               </>
             )}
+
+            <div className="sm:col-span-2 lg:col-span-4 pt-1">
+              <UnitPicker
+                label="Unité pour ce mouvement"
+                value={txUnite}
+                onChange={setTxUnite}
+                compact
+              />
+            </div>
           </div>
 
           <div className="flex justify-end gap-2 sm:gap-3 pt-2">
@@ -960,6 +1087,36 @@ export default function FicheStock() {
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-teal-600 outline-none"
               />
             </div>
+
+            <div className="sm:col-span-2 pt-1">
+              <UnitPicker
+                label="Unité de conditionnement par défaut"
+                value={editUnite}
+                onChange={setEditUnite}
+              />
+            </div>
+
+            <div className="sm:col-span-2 flex flex-wrap gap-3 pt-1">
+              <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg">
+                <input
+                  type="checkbox"
+                  checked={editIsImportant}
+                  onChange={(e) => setEditIsImportant(e.target.checked)}
+                  className="rounded text-red-600 focus:ring-red-500"
+                />
+                <span>Produit important (Vital)</span>
+              </label>
+
+              <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg">
+                <input
+                  type="checkbox"
+                  checked={editEnRupture}
+                  onChange={(e) => setEditEnRupture(e.target.checked)}
+                  className="rounded text-rose-600 focus:ring-rose-500"
+                />
+                <span>En rupture à la pharmacie hospitalière</span>
+              </label>
+            </div>
           </div>
 
           <div className="flex justify-end gap-2 sm:gap-3 pt-2">
@@ -997,11 +1154,13 @@ export default function FicheStock() {
               <tr className="bg-slate-100/80 text-[11px] font-bold uppercase text-slate-700">
                 <th className="border border-slate-300 px-3 sm:px-4 py-2.5 sm:py-3 w-28 sm:w-32">Date</th>
                 <th className="border border-slate-300 px-3 sm:px-4 py-2.5 sm:py-3">de : ........ pour : ........</th>
+                <th className="border border-slate-300 px-3 sm:px-4 py-2.5 sm:py-3 text-center w-28">Unité</th>
                 <th className="border border-slate-300 px-3 sm:px-4 py-2.5 sm:py-3 text-center w-28 sm:w-32">N° de Lot</th>
                 <th className="border border-slate-300 px-3 sm:px-4 py-2.5 sm:py-3 text-right w-20 sm:w-24">Entrées</th>
                 <th className="border border-slate-300 px-3 sm:px-4 py-2.5 sm:py-3 text-right w-20 sm:w-24">Sorties</th>
                 <th className="border border-slate-300 px-3 sm:px-4 py-2.5 sm:py-3 text-right w-20 sm:w-24 bg-teal-50/70 text-teal-900">Stock</th>
                 <th className="border border-slate-300 px-3 sm:px-4 py-2.5 sm:py-3 text-center w-28 sm:w-32">Date Péremption</th>
+                <th className="border border-slate-300 px-2 sm:px-3 py-2.5 sm:py-3 text-center w-20 print:hidden">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 text-xs sm:text-sm">
@@ -1012,6 +1171,11 @@ export default function FicheStock() {
                   </td>
                   <td className="border border-slate-200 px-3 sm:px-4 py-2.5 sm:py-3 text-slate-700">
                     {t.origineDestination || '-'}
+                  </td>
+                  <td className="border border-slate-200 px-3 sm:px-4 py-2.5 sm:py-3 text-center whitespace-nowrap">
+                    <span className="inline-flex items-center rounded bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700 border border-slate-200">
+                      {formatUnitDisplay(t.unite || activeProduct.unite)}
+                    </span>
                   </td>
                   <td className="border border-slate-200 px-3 sm:px-4 py-2.5 sm:py-3 text-center whitespace-nowrap">
                     {t.numeroLot ? (
@@ -1034,12 +1198,32 @@ export default function FicheStock() {
                   <td className="border border-slate-200 px-3 sm:px-4 py-2.5 sm:py-3 text-center text-slate-600 whitespace-nowrap">
                     {safeFormatDate(t.datePeremption, 'MM/yyyy')}
                   </td>
+                  <td className="border border-slate-200 px-2 py-2 text-center whitespace-nowrap print:hidden">
+                    <div className="inline-flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => openEditTransactionModal(t)}
+                        className="p-1.5 rounded-lg text-slate-500 hover:text-teal-700 hover:bg-teal-50 transition-colors"
+                        title="Modifier cette ligne"
+                      >
+                        <Edit3 className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTxToDelete(t)}
+                        className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                        title="Supprimer cette ligne"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
 
               {displayTransactions.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-10 text-center text-slate-500">
+                  <td colSpan={9} className="px-6 py-10 text-center text-slate-500">
                     <p className="font-semibold text-slate-700">Aucun mouvement enregistré pour ce produit.</p>
                     <p className="text-xs text-slate-400 mt-1">
                       Le stock est actuellement vierge (0). Cliquez sur "Saisir Effectif Réel" pour inscrire votre inventaire.
@@ -1051,6 +1235,177 @@ export default function FicheStock() {
           </table>
         </div>
       </div>
+
+      {/* Edit Transaction Row Modal */}
+      {editingTx && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto print:hidden">
+          <div className="relative w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-100 bg-teal-800 px-5 py-3.5 text-white">
+              <div className="flex items-center gap-2">
+                <Edit3 className="h-4 w-4 text-teal-200" />
+                <h3 className="text-sm font-bold">Modifier le mouvement de stock</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingTx(null)}
+                className="text-teal-200 hover:text-white p-1"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateTransactionSubmit} className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Type de mouvement</label>
+                  <select
+                    value={editTxType}
+                    onChange={(e) => setEditTxType(e.target.value as 'entree' | 'sortie')}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-teal-600"
+                  >
+                    <option value="entree">Entrée (+)</option>
+                    <option value="sortie">Sortie (-)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Date</label>
+                  <input
+                    type="date"
+                    required
+                    value={editTxDate}
+                    onChange={(e) => setEditTxDate(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-800 outline-none focus:border-teal-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Quantité</label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={editTxQty}
+                    onChange={(e) => setEditTxQty(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-teal-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">N° de Lot</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: LOT-2026"
+                    value={editTxLot}
+                    onChange={(e) => setEditTxLot(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono text-slate-800 outline-none focus:border-teal-600"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  {editTxType === 'entree' ? 'Origine (de : ...)' : 'Destination (pour : ...)'}
+                </label>
+                <div className="flex flex-wrap gap-1.5 mb-1.5">
+                  {(editTxType === 'entree' ? ENTREE_ORIGINES : SORTIE_DESTINATIONS).map((choice) => (
+                    <button
+                      key={choice}
+                      type="button"
+                      onClick={() => setEditTxOrigineDest(choice)}
+                      className={clsx(
+                        "px-2 py-0.5 rounded text-[11px] font-semibold border transition-colors",
+                        editTxOrigineDest === choice
+                          ? "bg-teal-700 text-white border-teal-700"
+                          : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                      )}
+                    >
+                      {choice}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="text"
+                  required
+                  value={editTxOrigineDest}
+                  onChange={(e) => setEditTxOrigineDest(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-800 outline-none focus:border-teal-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Date de Péremption</label>
+                <input
+                  type="date"
+                  value={editTxExpiry}
+                  onChange={(e) => setEditTxExpiry(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-800 outline-none focus:border-teal-600"
+                />
+              </div>
+
+              <UnitPicker
+                label="Unité de conditionnement"
+                value={editTxUnite}
+                onChange={setEditTxUnite}
+                compact
+              />
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingTx(null)}
+                  className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="flex items-center gap-1.5 rounded-lg bg-teal-700 px-4 py-2 text-xs font-bold text-white hover:bg-teal-800 shadow-xs"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Enregistrer les modifications
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Single Transaction Confirmation Modal (Iframe Safe - No window.confirm) */}
+      {txToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs print:hidden">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-xl bg-rose-100 text-rose-600 shrink-0">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">Supprimer ce mouvement ?</h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Voulez-vous supprimer l'opération du <strong>{safeFormatDate(txToDelete.date, 'dd/MM/yyyy')}</strong> ({txToDelete.type === 'entree' ? '+' : '-'}{txToDelete.quantite} — {txToDelete.origineDestination}) ? Le solde sera recalculé automatiquement.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setTxToDelete(null)}
+                className="px-3 py-1.5 text-xs font-semibold text-slate-700 rounded-lg hover:bg-slate-100"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteTransaction}
+                className="px-3.5 py-1.5 text-xs font-bold text-white bg-rose-600 rounded-lg hover:bg-rose-700 shadow-xs"
+              >
+                Supprimer la ligne
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete Product Confirmation Modal (Iframe Safe - No window.confirm) */}
       {isDeleteModalOpen && (

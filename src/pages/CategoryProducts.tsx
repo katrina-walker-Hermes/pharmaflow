@@ -7,6 +7,7 @@ import AddProductModal from '../components/AddProductModal';
 import ExportPdfModal from '../components/ExportPdfModal';
 import { safeDecode } from '../utils/formatters';
 import { sortProductsAlphabetically, normalizeCategoryName } from '../utils/categoryOrder';
+import { formatUnitDisplay } from '../components/UnitPicker';
 
 export default function CategoryProducts() {
   const { categoryName } = useParams<{ categoryName: string }>();
@@ -151,7 +152,9 @@ export default function CategoryProducts() {
                   )}>
                     {isBlank ? '0 (vierge)' : stock}
                   </span>
-                  <span className="text-[10px] text-slate-400">en stock</span>
+                  <span className="text-[10px] font-medium text-slate-500">
+                    {formatUnitDisplay(product.unite)}
+                  </span>
                 </div>
                 <ChevronRight className="h-4 w-4 text-slate-300" />
               </div>
@@ -211,15 +214,20 @@ export default function CategoryProducts() {
                   <td className="whitespace-nowrap px-6 py-4 text-right">
                     {isBlank ? (
                       <span className="inline-flex items-center rounded-md bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500">
-                        0 (vierge)
+                        0 (vierge) • {formatUnitDisplay(product.unite)}
                       </span>
                     ) : (
-                      <span className={clsx(
-                        "text-base font-bold",
-                        stock <= 0 ? "text-rose-600" : stock <= product.stockSecurite ? "text-amber-600" : "text-emerald-700"
-                      )}>
-                        {stock}
-                      </span>
+                      <div className="flex flex-col items-end">
+                        <span className={clsx(
+                          "text-base font-bold leading-tight",
+                          stock <= 0 ? "text-rose-600" : stock <= product.stockSecurite ? "text-amber-600" : "text-emerald-700"
+                        )}>
+                          {stock}
+                        </span>
+                        <span className="text-[11px] text-slate-500 font-medium">
+                          {formatUnitDisplay(product.unite)}
+                        </span>
+                      </div>
                     )}
                   </td>
                   <td className="whitespace-nowrap px-6 py-4 text-right text-sm text-slate-500">

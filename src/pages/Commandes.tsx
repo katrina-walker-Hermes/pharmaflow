@@ -28,6 +28,7 @@ import { clsx } from 'clsx';
 import { downloadOrderPdf } from '../utils/generateOrderPdf';
 import { sortProductsByCategoryAndName } from '../utils/categoryOrder';
 import { safeFormatDate } from '../utils/formatters';
+import { formatUnitDisplay } from '../components/UnitPicker';
 
 export default function Commandes() {
   const orders = useStore((state) => state.orders);
@@ -191,6 +192,7 @@ export default function Commandes() {
         productId: item.productId,
         productName: prod ? prod.name : 'Produit inconnu',
         category: prod ? prod.category : 'Général',
+        unite: prod?.unite,
         quantiteDemandee: Math.max(1, item.quantiteDemandee),
       };
     });
@@ -1013,6 +1015,7 @@ export default function Commandes() {
                                       productId: prod.id,
                                       productName: prod.name,
                                       category: prod.category,
+                                      unite: prod.unite,
                                       quantiteDemandee: prod.quantiteMoyenneMensuelle || 10,
                                     },
                                   ]);
@@ -1055,24 +1058,43 @@ export default function Commandes() {
                         <td className="px-4 py-3 text-slate-500">{it.category}</td>
                         <td className="px-4 py-3 text-right font-bold text-slate-800">
                           {isEditMode ? (
-                            <input
-                              type="number"
-                              min="1"
-                              value={it.quantiteDemandee}
-                              onChange={(e) => {
-                                const val = parseInt(e.target.value) || 1;
-                                const updated = [...editingItems];
-                                updated[idx].quantiteDemandee = val;
-                                setEditingItems(updated);
-                              }}
-                              className="w-20 rounded border border-teal-500 px-2 py-1 text-right text-xs font-bold text-slate-900 bg-teal-50/40 focus:bg-white outline-none"
-                            />
+                            <div className="inline-flex items-center gap-1.5">
+                              <input
+                                type="number"
+                                min="1"
+                                value={it.quantiteDemandee}
+                                onChange={(e) => {
+                                  const val = parseInt(e.target.value) || 1;
+                                  const updated = [...editingItems];
+                                  updated[idx].quantiteDemandee = val;
+                                  setEditingItems(updated);
+                                }}
+                                className="w-20 rounded border border-teal-500 px-2 py-1 text-right text-xs font-bold text-slate-900 bg-teal-50/40 focus:bg-white outline-none"
+                              />
+                              <span className="text-[10px] text-slate-500 font-medium">
+                                {formatUnitDisplay(it.unite)}
+                              </span>
+                            </div>
                           ) : (
-                            <span className="text-sm font-black text-slate-900">{it.quantiteDemandee}</span>
+                            <span className="text-sm font-black text-slate-900">
+                              {it.quantiteDemandee}{' '}
+                              <span className="text-[11px] font-medium text-slate-500">
+                                {formatUnitDisplay(it.unite)}
+                              </span>
+                            </span>
                           )}
                         </td>
                         <td className="px-4 py-3 text-right font-bold text-teal-700">
-                          {selectedOrder.statut === 'livree' ? (it.quantiteRecue ?? it.quantiteDemandee) : '-'}
+                          {selectedOrder.statut === 'livree' ? (
+                            <>
+                              {it.quantiteRecue ?? it.quantiteDemandee}{' '}
+                              <span className="text-[11px] font-medium text-teal-600">
+                                {formatUnitDisplay(it.unite)}
+                              </span>
+                            </>
+                          ) : (
+                            '-'
+                          )}
                         </td>
                         {selectedOrder.statut === 'livree' && (
                           <>

@@ -3,6 +3,7 @@ import { useStore } from '../store';
 import { X, Plus, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { ORDERED_CATEGORIES, sortCategories } from '../utils/categoryOrder';
+import UnitPicker from './UnitPicker';
 
 interface AddProductModalProps {
   isOpen: boolean;
@@ -28,6 +29,7 @@ export default function AddProductModal({
   const [selectedCategory, setSelectedCategory] = useState(defaultCategory || (existingCategories[0] || ''));
   const [isCustomCategory, setIsCustomCategory] = useState(false);
   const [customCategory, setCustomCategory] = useState('');
+  const [unite, setUnite] = useState('Unité');
   const [isImportant, setIsImportant] = useState(true);
   const [stockSecurite, setStockSecurite] = useState<number>(5);
   const [qmc, setQmc] = useState<number>(0);
@@ -71,6 +73,7 @@ export default function AddProductModal({
     addProduct({
       name: trimmedName,
       category: finalCategory,
+      unite: unite.trim() || 'Unité',
       isImportant,
       stockSecurite: Number(stockSecurite) || 0,
       quantiteMoyenneMensuelle: Number(qmc) || 0,
@@ -85,6 +88,7 @@ export default function AddProductModal({
     setName('');
     setCustomCategory('');
     setIsCustomCategory(false);
+    setUnite('Unité');
     setHasInitialStock(false);
     setInitialStock(0);
     setInitialDatePeremption('');
@@ -177,6 +181,15 @@ export default function AddProductModal({
                 ))}
               </select>
             )}
+          </div>
+
+          {/* Unit selection */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
+            <UnitPicker
+              label="Unité de conditionnement"
+              value={unite}
+              onChange={setUnite}
+            />
           </div>
 
           {/* Important & Rupture Hospital toggles */}

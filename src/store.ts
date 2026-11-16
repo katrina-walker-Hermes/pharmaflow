@@ -9,6 +9,7 @@ export interface Transaction {
   date: string;
   type: 'entree' | 'sortie';
   quantite: number;
+  unite?: string;
   origineDestination: string;
   datePeremption?: string;
   numeroLot?: string;
@@ -18,6 +19,7 @@ export interface Product {
   id: string;
   name: string;
   category: string;
+  unite?: string;
   isImportant: boolean;
   stockSecurite: number;
   quantiteMoyenneMensuelle: number;
@@ -29,6 +31,7 @@ export interface OrderItem {
   productId: string;
   productName: string;
   category: string;
+  unite?: string;
   quantiteDemandee: number;
   quantiteRecue?: number;
   datePeremption?: string;
@@ -100,6 +103,7 @@ export interface AppBackupData {
 interface NewProductInput {
   name: string;
   category: string;
+  unite?: string;
   isImportant: boolean;
   stockSecurite: number;
   quantiteMoyenneMensuelle: number;
@@ -121,9 +125,10 @@ interface AppState {
   updateProduct: (id: string, updates: Partial<Product>) => void;
   deleteProduct: (id: string) => void;
   addTransaction: (productId: string, transaction: Omit<Transaction, 'id'>) => void;
+  updateTransaction: (productId: string, transactionId: string, updates: Partial<Omit<Transaction, 'id'>>) => void;
   deleteTransaction: (productId: string, transactionId: string) => void;
   resetAllStocksToBlank: () => void;
-  setInitialProductStock: (productId: string, quantite: number, datePeremption?: string, origine?: string, numeroLot?: string) => void;
+  setInitialProductStock: (productId: string, quantite: number, datePeremption?: string, origine?: string, numeroLot?: string, unite?: string) => void;
   seedDatabase: () => void;
   
   // Order actions
@@ -163,12 +168,15 @@ export const useStore = create<AppState>()(
         const productId = uuidv4();
         const transactions: Transaction[] = [];
 
+        const resolvedUnit = input.unite?.trim() || 'Unité';
+
         if (input.initialStock && input.initialStock > 0) {
           transactions.push({
             id: uuidv4(),
             date: new Date().toISOString(),
             type: 'entree',
             quantite: Number(input.initialStock) || 0,
+            unite: resolvedUnit,
             origineDestination: input.initialOrigine || 'Inventaire initial',
             datePeremption: input.initialDatePeremption || undefined,
             numeroLot: input.initialNumeroLot?.trim() || undefined,
@@ -179,6 +187,7 @@ export const useStore = create<AppState>()(
           id: productId,
           name: input.name.trim(),
           category: normalizeCategoryName(input.category),
+          unite: resolvedUnit,
           isImportant: input.isImportant,
           stockSecurite: Number(input.stockSecurite) || 0,
           quantiteMoyenneMensuelle: Number(input.quantiteMoyenneMensuelle) || 0,
@@ -216,6 +225,19 @@ export const useStore = create<AppState>()(
           return p;
         })
       })),
+
+      updateTransaction: (productId, transactionId, updates) => set((state) => ({
+        products: state.products.map(p => {
+          if (p.id !== productId) return p;
+          const currentTransactions = Array.isArray(p.transactions) ? p.transactions : [];
+          return {
+            ...p,
+            transactions: currentTransactions.map(t =>
+              t.id === transactionId ? { ...t, ...updates } : t
+            ),
+          };
+        })
+      })),
       
       deleteTransaction: (productId, transactionId) => set((state) => ({
         products: state.products.map(p => {
@@ -237,14 +259,16 @@ export const useStore = create<AppState>()(
         }))
       })),
 
-      setInitialProductStock: (productId, quantite, datePeremption, origine, numeroLot) => set((state) => ({
+      setInitialProductStock: (productId, quantite, datePeremption, origine, numeroLot, unite) => set((state) => ({
         products: state.products.map(p => {
           if (p.id === productId) {
+            const resolvedUnit = unite?.trim() || p.unite || 'Unité';
             const newTransactions: Transaction[] = quantite > 0 ? [{
               id: uuidv4(),
               date: new Date().toISOString(),
               type: 'entree',
               quantite: Number(quantite) || 0,
+              unite: resolvedUnit,
               origineDestination: origine || 'Inventaire initial',
               datePeremption: datePeremption || undefined,
               numeroLot: numeroLot?.trim() || undefined,
@@ -252,6 +276,7 @@ export const useStore = create<AppState>()(
 
             return {
               ...p,
+              ...(unite?.trim() ? { unite: resolvedUnit } : {}),
               transactions: newTransactions
             };
           }
@@ -364,12 +389,15 @@ export const useStore = create<AppState>()(
                 (orderItem && p.name.trim().toLowerCase() === orderItem.productName.trim().toLowerCase())
               );
 
+              const resolvedUnit = (prodIndex >= 0 ? updatedProducts[prodIndex].unite : undefined) || orderItem?.unite || 'Unité';
+
               // Exactly as requested: entry into fiche de poste from the hospital pharmacy with lot and expiration date
               const entryTransaction: Transaction = {
                 id: uuidv4(),
                 date: receptionDateIso,
                 type: 'entree',
                 quantite: qty,
+                unite: resolvedUnit,
                 origineDestination: `Pharmacie hospitalière (BC N° ${order.numeroCommande})`,
                 datePeremption: rec.datePeremption || undefined,
                 numeroLot: rec.numeroLot?.trim() || undefined,
@@ -388,6 +416,7 @@ export const useStore = create<AppState>()(
                   id: rec.productId,
                   name: orderItem.productName,
                   category: normalizeCategoryName(orderItem.category),
+                  unite: resolvedUnit,
                   isImportant: true,
                   stockSecurite: 5,
                   quantiteMoyenneMensuelle: 0,
@@ -732,6 +761,7 @@ export const useStore = create<AppState>()(
           id: p.id || uuidv4(),
           name: String(p.name || 'Produit sans nom').trim(),
           category: normalizeCategoryName(p.category || 'Général'),
+          unite: p.unite ? String(p.unite).trim() : undefined,
           isImportant: Boolean(p.isImportant),
           stockSecurite: Number(p.stockSecurite) || 0,
           quantiteMoyenneMensuelle: Number(p.quantiteMoyenneMensuelle) || 0,
@@ -742,6 +772,7 @@ export const useStore = create<AppState>()(
                 date: t.date || new Date().toISOString(),
                 type: (t.type === 'entree' || t.type === 'sortie') ? t.type : 'entree',
                 quantite: Number(t.quantite) || 0,
+                unite: t.unite ? String(t.unite).trim() : undefined,
                 origineDestination: String(t.origineDestination || 'Non spécifié').trim(),
                 datePeremption: t.datePeremption || undefined,
                 numeroLot: t.numeroLot || undefined,
@@ -767,6 +798,7 @@ export const useStore = create<AppState>()(
                 productId: it.productId || uuidv4(),
                 productName: it.productName || 'Article',
                 category: normalizeCategoryName(it.category || 'Général'),
+                unite: it.unite ? String(it.unite).trim() : undefined,
                 quantiteDemandee: Number(it.quantiteDemandee) || 1,
                 quantiteRecue: it.quantiteRecue !== undefined ? Number(it.quantiteRecue) : undefined,
                 datePeremption: it.datePeremption,
