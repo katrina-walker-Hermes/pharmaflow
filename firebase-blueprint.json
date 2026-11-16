@@ -1,0 +1,143 @@
+{
+  "entities": {
+    "UserPublicProfile": {
+      "title": "UserPublicProfile",
+      "description": "Minimal non-PII user identity record used as the parent anchor for user-owned subcollections.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Authentication UID matching the document ID."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Display name shown in the application header."
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Optional Google account avatar URL."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of initial profile creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last profile update."
+        }
+      },
+      "required": ["uid", "displayName", "createdAt", "updatedAt"]
+    },
+    "UserPrivateProfile": {
+      "title": "UserPrivateProfile",
+      "description": "Strictly isolated PII document storing the verified Gmail address and login metadata.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Owner UID."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 254,
+          "description": "Verified Gmail address from Firebase Auth."
+        },
+        "emailVerified": {
+          "type": "boolean",
+          "description": "Email verification status."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last login sync."
+        }
+      },
+      "required": ["uid", "email", "emailVerified", "createdAt", "updatedAt"]
+    },
+    "PharmacyWorkspace": {
+      "title": "PharmacyWorkspace",
+      "description": "Cloud-synced pharmacy inventory workspace for an authenticated user (products, orders, Le Bon Danger entries).",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Owner UID."
+        },
+        "hospital": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Hospital identifier (e.g. CHP Sidi Ifni)."
+        },
+        "serviceName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Department identifier (e.g. Service du Bloc Opératoire)."
+        },
+        "products": {
+          "type": "array",
+          "description": "Bounded list of product stock records (max 500)."
+        },
+        "orders": {
+          "type": "array",
+          "description": "Bounded list of pharmacy purchase orders (max 300)."
+        },
+        "bonDangerEntries": {
+          "type": "array",
+          "description": "Bounded list of Fentanyl narcotic register entries (max 500)."
+        },
+        "bonDangerInitialized": {
+          "type": "boolean",
+          "description": "Tracks whether Le Bon Danger initial state was configured."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of workspace creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last cloud sync."
+        }
+      },
+      "required": ["uid", "hospital", "serviceName", "products", "orders", "bonDangerEntries", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserPublicProfile" },
+      "description": "Non-PII public profile document keyed by Firebase Auth UID."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateProfile" },
+      "description": "Isolated PII document (docId='info') storing verified Gmail address, accessible only by the owner."
+    },
+    "/users/{userId}/workspaces/{workspaceId}": {
+      "schema": { "$ref": "#/entities/PharmacyWorkspace" },
+      "description": "User-owned cloud pharmacy inventory workspace (workspaceId='default')."
+    }
+  }
+}

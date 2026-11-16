@@ -1,0 +1,150 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Global Hardened Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    // 3. Entity Validation Blueprints
+    function isValidUserPublicProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'displayName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'photoURL', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'emailVerified', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'emailVerified', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.email == request.auth.token.email
+        && data.emailVerified is bool && data.emailVerified == true
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPharmacyWorkspace(data, userId) {
+      return data.keys().hasAll(['uid', 'hospital', 'serviceName', 'products', 'orders', 'bonDangerEntries', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'hospital', 'serviceName', 'products', 'orders', 'bonDangerEntries', 'bonDangerInitialized', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.hospital is string && data.hospital.size() >= 1 && data.hospital.size() <= 120
+        && data.serviceName is string && data.serviceName.size() >= 1 && data.serviceName.size() <= 120
+        && data.products is list && data.products.size() <= 500 && (data.products.size() == 0 || data.products[0] is map)
+        && data.orders is list && data.orders.size() <= 300 && (data.orders.size() == 0 || data.orders[0] is map)
+        && data.bonDangerEntries is list && data.bonDangerEntries.size() <= 500 && (data.bonDangerEntries.size() == 0 || data.bonDangerEntries[0] is map)
+        && (!('bonDangerInitialized' in data) || data.bonDangerInitialized is bool)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // 4. Collection Rules
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if false;
+
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserPublicProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserPublicProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt']);
+
+      allow delete: if false;
+
+      // Isolated PII subcollection (only docId == 'info')
+      match /private/{docId} {
+        allow get: if isValidId(userId) && isValidId(docId) && docId == 'info'
+          && isOwner(userId)
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+        allow list: if false;
+
+        allow create: if isValidId(userId) && isValidId(docId) && docId == 'info'
+          && isOwner(userId)
+          && isValidUserPrivateProfile(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && getAfter(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+
+        allow update: if isValidId(userId) && isValidId(docId) && docId == 'info'
+          && isOwner(userId)
+          && isValidUserPrivateProfile(incoming(), userId)
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid
+          && incoming().uid == existing().uid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'emailVerified', 'updatedAt']);
+
+        allow delete: if false;
+      }
+
+      // User Pharmacy Workspace Sync subcollection (only workspaceId == 'default')
+      match /workspaces/{workspaceId} {
+        allow get: if isValidId(userId) && isValidId(workspaceId) && workspaceId == 'default'
+          && isOwner(userId)
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+        allow list: if false;
+
+        allow create: if isValidId(userId) && isValidId(workspaceId) && workspaceId == 'default'
+          && isOwner(userId)
+          && isValidPharmacyWorkspace(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+
+        allow update: if isValidId(userId) && isValidId(workspaceId) && workspaceId == 'default'
+          && isOwner(userId)
+          && isValidPharmacyWorkspace(incoming(), userId)
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid
+          && incoming().uid == existing().uid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['hospital', 'serviceName', 'products', 'orders', 'bonDangerEntries', 'bonDangerInitialized', 'updatedAt']);
+
+        allow delete: if isValidId(userId) && isValidId(workspaceId) && workspaceId == 'default'
+          && isOwner(userId)
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+      }
+    }
+  }
+}

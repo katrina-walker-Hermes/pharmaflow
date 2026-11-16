@@ -12,11 +12,15 @@ import {
   FileDown,
   FileText,
   ShieldAlert,
-  FileCode2
+  FileCode2,
+  LogOut,
+  Cloud,
+  RefreshCw
 } from 'lucide-react';
 import { useState } from 'react';
 import { clsx } from 'clsx';
 import { useStore } from '../store';
+import { useAuth } from '../contexts/AuthContext';
 import AddProductModal from './AddProductModal';
 import ResetConfirmModal from './ResetConfirmModal';
 import ExportPdfModal from './ExportPdfModal';
@@ -31,6 +35,7 @@ export default function Layout() {
   const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
   const [isJsonBackupOpen, setIsJsonBackupOpen] = useState(false);
   const location = useLocation();
+  const { user, isSyncing, syncNow, signOutUser } = useAuth();
 
   const orders = useStore((state) => state.orders);
   const cancelledOrdersCount = orders.filter((o) => o.statut === 'annulee').length;
@@ -189,9 +194,62 @@ export default function Layout() {
           </nav>
         </div>
 
-        {/* Footer info in sidebar */}
-        <div className="p-4 border-t border-teal-800/50 bg-teal-950/40 text-[11px] text-teal-300 space-y-2">
-          <div className="flex items-center justify-between">
+        {/* Footer info & Signed-in Gmail Account in sidebar */}
+        <div className="p-3.5 border-t border-teal-800/50 bg-teal-950/50 text-[11px] text-teal-300 space-y-2.5">
+          {user && (
+            <div className="rounded-xl bg-teal-900/70 border border-teal-800 p-2.5 space-y-2">
+              <div className="flex items-center gap-2.5 min-w-0">
+                {user.photoURL ? (
+                  <img
+                    src={user.photoURL}
+                    alt={user.displayName || 'Profil Google'}
+                    className="h-8 w-8 rounded-full border border-teal-600 shrink-0 object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="h-8 w-8 rounded-full bg-teal-700 text-white font-bold flex items-center justify-center shrink-0 text-xs">
+                    {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold text-white truncate text-xs leading-tight">
+                    {user.displayName || 'Utilisateur Gmail'}
+                  </p>
+                  <p className="text-[10px] text-teal-300 truncate">
+                    {user.email}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={isSyncing}
+                  onClick={() => syncNow()}
+                  className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-teal-800/90 hover:bg-teal-700 text-teal-100 px-2 py-1.5 text-[10px] font-semibold transition-colors disabled:opacity-60"
+                  title="Synchroniser le stock avec votre compte Gmail"
+                >
+                  {isSyncing ? (
+                    <RefreshCw className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Cloud className="h-3 w-3 text-teal-300" />
+                  )}
+                  <span>{isSyncing ? 'Sync...' : 'Sync Cloud'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => signOutUser()}
+                  className="flex items-center justify-center gap-1 rounded-lg bg-rose-950/70 hover:bg-rose-900 border border-rose-800/60 text-rose-200 px-2.5 py-1.5 text-[10px] font-semibold transition-colors"
+                  title="Se déconnecter du compte Gmail"
+                >
+                  <LogOut className="h-3 w-3" />
+                  <span>Quitter</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between px-0.5">
             <span className="font-semibold text-teal-100">CHP SIDI IFNI</span>
             <span className="text-[10px] bg-teal-800 px-1.5 py-0.5 rounded text-teal-200">v2.1 PWA</span>
           </div>
@@ -280,6 +338,30 @@ export default function Layout() {
               <span className="hidden sm:inline">Ajouter Produit</span>
               <span className="sm:hidden">Ajouter</span>
             </button>
+
+            {user && (
+              <div className="hidden xl:flex items-center gap-2 pl-2 border-l border-slate-200">
+                {user.photoURL && (
+                  <img
+                    src={user.photoURL}
+                    alt={user.displayName || 'Gmail'}
+                    className="h-7 w-7 rounded-full border border-slate-300 object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                )}
+                <span className="text-xs font-medium text-slate-700 max-w-[140px] truncate" title={user.email || undefined}>
+                  {user.email}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => signOutUser()}
+                  className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                  title="Se déconnecter"
+                >
+                  <LogOut className="h-4 w-4" />
+                </button>
+              </div>
+            )}
           </div>
         </header>
 
