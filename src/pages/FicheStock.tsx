@@ -36,6 +36,7 @@ export default function FicheStock() {
   const updateProduct = useStore((state) => state.updateProduct);
   const deleteProduct = useStore((state) => state.deleteProduct);
   const setInitialProductStock = useStore((state) => state.setInitialProductStock);
+  const recordPeriodicInventory = useStore((state) => state.recordPeriodicInventory);
 
   // Quick search filter for product selection
   const [selectorSearch, setSelectorSearch] = useState('');
@@ -118,11 +119,20 @@ export default function FicheStock() {
     }
   });
 
-  // Initial Inventory state
+  // Inventory state (Periodic / End-of-month vs Initial)
+  const [inventoryMode, setInventoryMode] = useState<'periodique' | 'initial'>('periodique');
   const [inventoryCount, setInventoryCount] = useState<string>('');
   const [inventoryUnite, setInventoryUnite] = useState<string>('Unité');
   const [inventoryExpiry, setInventoryExpiry] = useState<string>('');
   const [inventoryLot, setInventoryLot] = useState<string>('');
+  const [inventoryDate, setInventoryDate] = useState<string>(() => {
+    try {
+      return new Date().toISOString().split('T')[0];
+    } catch {
+      return '';
+    }
+  });
+  const [inventoryLabel, setInventoryLabel] = useState<string>('Inventaire fin de mois');
 
   // Edit product state
   const [editName, setEditName] = useState('');
@@ -272,14 +282,35 @@ export default function FicheStock() {
       } catch {}
     }
 
-    setInitialProductStock(
-      activeProduct.id,
-      count,
-      validExpiryIso,
-      'Inventaire initial',
-      inventoryLot.trim() || undefined,
-      inventoryUnite.trim() || activeProduct.unite || 'Unité'
-    );
+    let validDateIso = new Date().toISOString();
+    if (inventoryDate) {
+      try {
+        const pDate = new Date(inventoryDate);
+        if (!isNaN(pDate.getTime())) {
+          validDateIso = pDate.toISOString();
+        }
+      } catch {}
+    }
+
+    if (inventoryMode === 'initial') {
+      setInitialProductStock(
+        activeProduct.id,
+        count,
+        validExpiryIso,
+        'Inventaire initial',
+        inventoryLot.trim() || undefined,
+        inventoryUnite.trim() || activeProduct.unite || 'Unité'
+      );
+    } else {
+      recordPeriodicInventory(activeProduct.id, count, {
+        date: validDateIso,
+        label: inventoryLabel.trim() || 'Inventaire fin de mois',
+        datePeremption: validExpiryIso,
+        numeroLot: inventoryLot.trim() || undefined,
+        unite: inventoryUnite.trim() || activeProduct.unite || 'Unité',
+      });
+    }
+
     setActiveAction(null);
     setInventoryCount('');
     setInventoryExpiry('');
@@ -700,8 +731,10 @@ export default function FicheStock() {
             <button
               type="button"
               onClick={() => {
+                setInventoryMode(rawTransactions.length > 0 ? 'periodique' : 'initial');
                 setInventoryCount(stock > 0 ? stock.toString() : '');
                 setInventoryUnite(activeProduct.unite || 'Unité');
+                setInventoryLabel('Inventaire fin de mois');
                 setActiveAction('inventaire');
               }}
               className="flex items-center justify-center gap-2 rounded-xl bg-teal-700 px-3.5 py-2.5 text-xs font-bold text-white hover:bg-teal-800 transition-all shadow-xs active:scale-95"
@@ -768,90 +801,240 @@ export default function FicheStock() {
         </div>
       </div>
 
-      {/* FORM: Saisie inventaire initial / Effectif réel */}
-      {activeAction === 'inventaire' && (
-        <form onSubmit={handleInventorySubmit} className="rounded-2xl border border-teal-300 bg-teal-50/70 p-4 sm:p-6 shadow-sm space-y-4 print:hidden animate-in fade-in duration-200">
-          <div className="flex justify-between items-center border-b border-teal-200/80 pb-3">
-            <div>
-              <h3 className="text-sm sm:text-base font-bold text-teal-950">Saisie de l'effectif réel (Inventaire physique)</h3>
-              <p className="text-xs text-teal-800">Définit le stock physique compté sur étagère pour {activeProduct.name}.</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setActiveAction(null)}
-              className="text-xs font-semibold text-slate-500 hover:text-slate-800 p-1"
-            >
-              Fermer
-            </button>
-          </div>
+      {/* FORM: Saisie inventaire (Périodique / Fin de mois vs Initial) */}
+      {activeAction === 'inventaire' && (() => {
+        const parsedCount = parseInt(inventoryCount, 10);
+        const hasValidCount = !isNaN(parsedCount) && parsedCount >= 0;
+        const deltaPreview = hasValidCount ? parsedCount - stock : 0;
+        const targetMonthlyStock = activeProduct.quantiteMoyenneMensuelle > 0
+          ? activeProduct.quantiteMoyenneMensuelle
+          : (activeProduct.stockSecurite || 0) * 2;
+        const estimatedOrderQty = hasValidCount ? Math.max(0, targetMonthlyStock - parsedCount) : 0;
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                Effectif compté (Quantité en stock) <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="number"
-                min="0"
-                required
-                placeholder="Ex: 12"
-                value={inventoryCount}
-                onChange={(e) => setInventoryCount(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-teal-600 focus:ring-2 focus:ring-teal-100 outline-none"
+        return (
+          <form onSubmit={handleInventorySubmit} className="rounded-2xl border border-teal-300 bg-teal-50/70 p-4 sm:p-6 shadow-sm space-y-4 print:hidden animate-in fade-in duration-200">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-teal-200/80 pb-3">
+              <div>
+                <h3 className="text-sm sm:text-base font-bold text-teal-950">
+                  Saisie de l'effectif réel (Inventaire physique)
+                </h3>
+                <p className="text-xs text-teal-800">
+                  Stock théorique actuel : <strong>{stock} {formatUnitDisplay(activeProduct.unite)}</strong>
+                </p>
+              </div>
+              <div className="flex items-center gap-2 self-end sm:self-auto">
+                <Link
+                  to="/inventaire"
+                  className="rounded-lg border border-teal-600/30 bg-white px-2.5 py-1 text-[11px] font-bold text-teal-800 hover:bg-teal-100/60"
+                >
+                  Inventaire Fin de Mois (Global)
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setActiveAction(null)}
+                  className="text-xs font-semibold text-slate-500 hover:text-slate-800 p-1"
+                >
+                  Fermer
+                </button>
+              </div>
+            </div>
+
+            {/* Mode Switcher: Périodique (Conserve historique) vs Initial (Remise à zéro) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-1 rounded-xl bg-white border border-teal-200">
+              <button
+                type="button"
+                onClick={() => setInventoryMode('periodique')}
+                className={clsx(
+                  "rounded-lg px-3 py-2 text-left transition-all border",
+                  inventoryMode === 'periodique'
+                    ? "bg-teal-700 text-white border-teal-700 shadow-2xs"
+                    : "bg-transparent text-slate-700 border-transparent hover:bg-slate-50"
+                )}
+              >
+                <span className="block text-xs font-bold">Inventaire Périodique / Fin de mois</span>
+                <span className={clsx("block text-[10px]", inventoryMode === 'periodique' ? "text-teal-100" : "text-slate-500")}>
+                  Conserve l'historique et ajuste l'écart automatiquement
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setInventoryMode('initial')}
+                className={clsx(
+                  "rounded-lg px-3 py-2 text-left transition-all border",
+                  inventoryMode === 'initial'
+                    ? "bg-amber-600 text-white border-amber-600 shadow-2xs"
+                    : "bg-transparent text-slate-700 border-transparent hover:bg-slate-50"
+                )}
+              >
+                <span className="block text-xs font-bold">Inventaire Initial (Remise à zéro)</span>
+                <span className={clsx("block text-[10px]", inventoryMode === 'initial' ? "text-amber-100" : "text-slate-500")}>
+                  Remplace les mouvements précédents par un stock de départ
+                </span>
+              </button>
+            </div>
+
+            {inventoryMode === 'initial' && rawTransactions.length > 0 && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 flex items-start gap-2.5 text-xs text-amber-900">
+                <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  Attention : l'<strong>Inventaire Initial</strong> efface les {rawTransactions.length} mouvements existants de cette fiche. Pour un contrôle de fin de mois, sélectionnez plutôt <strong>Inventaire Périodique / Fin de mois</strong>.
+                </span>
+              </div>
+            )}
+
+            {inventoryMode === 'periodique' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Date de l'inventaire
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={inventoryDate}
+                    onChange={(e) => setInventoryDate(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-teal-600 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Motif / Libellé
+                  </label>
+                  <div className="flex flex-wrap gap-1.5 mb-1.5">
+                    {['Inventaire fin de mois', 'Inventaire périodique', 'Contrôle physique'].map((lbl) => (
+                      <button
+                        key={lbl}
+                        type="button"
+                        onClick={() => setInventoryLabel(lbl)}
+                        className={clsx(
+                          "px-2 py-0.5 rounded text-[10px] font-bold border transition-colors",
+                          inventoryLabel === lbl
+                            ? "bg-teal-700 text-white border-teal-700"
+                            : "bg-white text-slate-600 border-slate-300 hover:bg-slate-100"
+                        )}
+                      >
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    value={inventoryLabel}
+                    onChange={(e) => setInventoryLabel(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-teal-600 outline-none"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Effectif réel compté <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  required
+                  placeholder="Ex: 12"
+                  value={inventoryCount}
+                  onChange={(e) => setInventoryCount(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-900 focus:border-teal-600 focus:ring-2 focus:ring-teal-100 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Numéro de Lot
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: LOT-2026-X1"
+                  value={inventoryLot}
+                  onChange={(e) => setInventoryLot(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-teal-600 focus:ring-2 focus:ring-teal-100 outline-none font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Date de péremption du lot
+                </label>
+                <input
+                  type="date"
+                  value={inventoryExpiry}
+                  onChange={(e) => setInventoryExpiry(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-teal-600 focus:ring-2 focus:ring-teal-100 outline-none"
+                />
+              </div>
+            </div>
+
+            {hasValidCount && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {inventoryMode === 'periodique' && (
+                  <div className={clsx(
+                    "rounded-xl border px-3.5 py-2.5 text-xs flex items-center justify-between",
+                    deltaPreview > 0
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-900"
+                      : deltaPreview < 0
+                      ? "bg-rose-50 border-rose-200 text-rose-900"
+                      : "bg-white border-slate-200 text-slate-700"
+                  )}>
+                    <span className="font-semibold">Ajustement sur fiche :</span>
+                    <span className="font-black">
+                      {deltaPreview > 0
+                        ? `+${deltaPreview} (Entrée régul.)`
+                        : deltaPreview < 0
+                        ? `${deltaPreview} (Sortie ajust.)`
+                        : '0 (Stock conforme)'}
+                    </span>
+                  </div>
+                )}
+
+                <div className="rounded-xl border border-blue-200 bg-blue-50/80 px-3.5 py-2.5 text-xs flex items-center justify-between text-blue-950">
+                  <span className="font-semibold">
+                    Estimation prochain bon (cible {targetMonthlyStock}) :
+                  </span>
+                  <span className="font-black text-blue-800">
+                    {estimatedOrderQty > 0
+                      ? `Commander ${estimatedOrderQty} ${formatUnitDisplay(inventoryUnite)}`
+                      : 'Stock suffisant (0)'}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <div className="pt-1">
+              <UnitPicker
+                label="Unité de conditionnement"
+                value={inventoryUnite}
+                onChange={setInventoryUnite}
+                compact
               />
             </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                Numéro de Lot
-              </label>
-              <input
-                type="text"
-                placeholder="Ex: LOT-2026-X1"
-                value={inventoryLot}
-                onChange={(e) => setInventoryLot(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-teal-600 focus:ring-2 focus:ring-teal-100 outline-none font-mono"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                Date de péremption du lot
-              </label>
-              <input
-                type="date"
-                value={inventoryExpiry}
-                onChange={(e) => setInventoryExpiry(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-teal-600 focus:ring-2 focus:ring-teal-100 outline-none"
-              />
-            </div>
-          </div>
 
-          <div className="pt-1">
-            <UnitPicker
-              label="Unité de conditionnement"
-              value={inventoryUnite}
-              onChange={setInventoryUnite}
-              compact
-            />
-          </div>
-
-          <div className="flex justify-end gap-2 sm:gap-3 pt-2">
-            <button
-              type="button"
-              onClick={() => setActiveAction(null)}
-              className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-200/60"
-            >
-              Annuler
-            </button>
-            <button
-              type="submit"
-              className="flex items-center gap-1.5 rounded-lg bg-teal-800 px-4 py-2 text-xs font-semibold text-white hover:bg-teal-900 shadow-xs active:scale-95"
-            >
-              <CheckCircle2 className="h-4 w-4" />
-              Valider l'effectif
-            </button>
-          </div>
-        </form>
-      )}
+            <div className="flex justify-end gap-2 sm:gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setActiveAction(null)}
+                className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-200/60"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                className={clsx(
+                  "flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold text-white shadow-xs active:scale-95",
+                  inventoryMode === 'initial' ? "bg-amber-600 hover:bg-amber-700" : "bg-teal-800 hover:bg-teal-900"
+                )}
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                {inventoryMode === 'initial' ? "Valider l'inventaire initial" : "Enregistrer l'inventaire périodique"}
+              </button>
+            </div>
+          </form>
+        );
+      })()}
 
       {/* FORM: Entrée / Sortie */}
       {(activeAction === 'entree' || activeAction === 'sortie') && (

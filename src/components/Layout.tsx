@@ -15,7 +15,8 @@ import {
   FileCode2,
   LogOut,
   Cloud,
-  RefreshCw
+  RefreshCw,
+  ClipboardCheck
 } from 'lucide-react';
 import { useState } from 'react';
 import { clsx } from 'clsx';
@@ -61,6 +62,7 @@ export default function Layout() {
       icon: FileText,
       activeMatch: (path: string) => path.startsWith('/fiches-de-stock') || path.startsWith('/product')
     },
+    { name: 'Inventaire Fin de Mois', href: '/inventaire', icon: ClipboardCheck },
     { name: 'Catalogue & Catégories', href: '/catalog', icon: PackageSearch },
     { 
       name: 'Bons de Commande', 

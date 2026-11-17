@@ -9,6 +9,7 @@ import CalendrierPeremption from './pages/CalendrierPeremption';
 import Ruptures from './pages/Ruptures';
 import Commandes from './pages/Commandes';
 import LeBonDanger from './pages/LeBonDanger';
+import InventaireFinMois from './pages/InventaireFinMois';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import GmailLoginScreen from './components/GmailLoginScreen';
@@ -36,6 +37,7 @@ function AppRoutes() {
         <Route path="le-bon-danger" element={<LeBonDanger />} />
         <Route path="fiches-de-stock" element={<FicheStock />} />
         <Route path="fiches-de-stock/:productId" element={<FicheStock />} />
+        <Route path="inventaire" element={<InventaireFinMois />} />
         <Route path="catalog" element={<Catalog />} />
         <Route path="catalog/:categoryName" element={<CategoryProducts />} />
         <Route path="product/:productId" element={<FicheStock />} />

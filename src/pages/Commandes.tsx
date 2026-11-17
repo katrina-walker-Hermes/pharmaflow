@@ -1,7 +1,9 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useStore, PharmacyOrder, OrderItem, getCurrentStock } from '../store';
 import { 
   ClipboardList, 
+  ClipboardCheck,
   Plus, 
   RotateCcw, 
   CheckCircle2, 
@@ -337,17 +339,28 @@ export default function Commandes() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            setNewOrderItems([]);
-            setIsCreateModalOpen(true);
-          }}
-          className="flex items-center gap-2 rounded-xl bg-teal-700 px-4 py-2.5 text-xs sm:text-sm font-semibold text-white shadow-xs hover:bg-teal-800 transition-colors active:scale-95"
-        >
-          <Plus className="h-4 w-4" />
-          Nouveau Bon de Commande
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            to="/inventaire"
+            className="flex items-center gap-2 rounded-xl border border-teal-700 bg-white px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-teal-800 hover:bg-teal-50 transition-colors shadow-2xs active:scale-95"
+            title="Saisir l'inventaire fin de mois pour estimer le prochain bon de commande"
+          >
+            <ClipboardCheck className="h-4 w-4 text-teal-700" />
+            Inventaire Fin de Mois
+          </Link>
+
+          <button
+            type="button"
+            onClick={() => {
+              setNewOrderItems([]);
+              setIsCreateModalOpen(true);
+            }}
+            className="flex items-center gap-2 rounded-xl bg-teal-700 px-4 py-2.5 text-xs sm:text-sm font-semibold text-white shadow-xs hover:bg-teal-800 transition-colors active:scale-95"
+          >
+            <Plus className="h-4 w-4" />
+            Nouveau Bon de Commande
+          </button>
+        </div>
       </div>
 
       {/* Success Notification Banner */}

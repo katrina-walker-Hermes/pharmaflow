@@ -129,6 +129,28 @@ interface AppState {
   deleteTransaction: (productId: string, transactionId: string) => void;
   resetAllStocksToBlank: () => void;
   setInitialProductStock: (productId: string, quantite: number, datePeremption?: string, origine?: string, numeroLot?: string, unite?: string) => void;
+  recordPeriodicInventory: (
+    productId: string,
+    countedQty: number,
+    options?: {
+      date?: string;
+      label?: string;
+      datePeremption?: string;
+      numeroLot?: string;
+      unite?: string;
+    }
+  ) => void;
+  recordBulkPeriodicInventory: (
+    entries: {
+      productId: string;
+      countedQty: number;
+      date?: string;
+      label?: string;
+      datePeremption?: string;
+      numeroLot?: string;
+      unite?: string;
+    }[]
+  ) => void;
   seedDatabase: () => void;
   
   // Order actions
@@ -283,6 +305,86 @@ export const useStore = create<AppState>()(
           return p;
         })
       })),
+
+      recordPeriodicInventory: (productId, countedQty, options) => set((state) => ({
+        products: state.products.map(p => {
+          if (p.id !== productId) return p;
+          const currentStock = getCurrentStock(p);
+          const targetQty = Math.max(0, Number(countedQty) || 0);
+          const delta = targetQty - currentStock;
+          const resolvedUnit = options?.unite?.trim() || p.unite || 'Unité';
+          const labelBase = options?.label?.trim() || 'Inventaire fin de mois';
+          const dateIso = options?.date || new Date().toISOString();
+
+          const origineLabel =
+            delta > 0
+              ? `${labelBase} (Régularisation +${delta})`
+              : delta < 0
+              ? `${labelBase} (Ajustement -${Math.abs(delta)})`
+              : `${labelBase} (Conforme : ${targetQty})`;
+
+          const tx: Transaction = {
+            id: uuidv4(),
+            date: dateIso,
+            type: delta >= 0 ? 'entree' : 'sortie',
+            quantite: Math.abs(delta),
+            unite: resolvedUnit,
+            origineDestination: origineLabel,
+            datePeremption: options?.datePeremption || undefined,
+            numeroLot: options?.numeroLot?.trim() || undefined,
+          };
+
+          const currentTransactions = Array.isArray(p.transactions) ? p.transactions : [];
+          return {
+            ...p,
+            ...(options?.unite?.trim() ? { unite: resolvedUnit } : {}),
+            transactions: [...currentTransactions, tx],
+          };
+        })
+      })),
+
+      recordBulkPeriodicInventory: (entries) => set((state) => {
+        if (!Array.isArray(entries) || entries.length === 0) return state;
+        const entryMap = new Map(entries.map((e) => [e.productId, e]));
+
+        return {
+          products: state.products.map((p) => {
+            const item = entryMap.get(p.id);
+            if (!item) return p;
+            const currentStock = getCurrentStock(p);
+            const targetQty = Math.max(0, Number(item.countedQty) || 0);
+            const delta = targetQty - currentStock;
+            const resolvedUnit = item.unite?.trim() || p.unite || 'Unité';
+            const labelBase = item.label?.trim() || 'Inventaire fin de mois';
+            const dateIso = item.date || new Date().toISOString();
+
+            const origineLabel =
+              delta > 0
+                ? `${labelBase} (Régularisation +${delta})`
+                : delta < 0
+                ? `${labelBase} (Ajustement -${Math.abs(delta)})`
+                : `${labelBase} (Conforme : ${targetQty})`;
+
+            const tx: Transaction = {
+              id: uuidv4(),
+              date: dateIso,
+              type: delta >= 0 ? 'entree' : 'sortie',
+              quantite: Math.abs(delta),
+              unite: resolvedUnit,
+              origineDestination: origineLabel,
+              datePeremption: item.datePeremption || undefined,
+              numeroLot: item.numeroLot?.trim() || undefined,
+            };
+
+            const currentTransactions = Array.isArray(p.transactions) ? p.transactions : [];
+            return {
+              ...p,
+              ...(item.unite?.trim() ? { unite: resolvedUnit } : {}),
+              transactions: [...currentTransactions, tx],
+            };
+          }),
+        };
+      }),
 
       // Orders functionality
       createOrder: (orderInput) => {
