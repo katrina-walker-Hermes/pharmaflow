@@ -20,6 +20,8 @@ import {
   writeBatch,
   serverTimestamp,
   getDocFromServer,
+  onSnapshot,
+  Unsubscribe,
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 import type { Product, PharmacyOrder, BonDangerEntry } from './store';
@@ -97,6 +99,9 @@ async function testConnection() {
 testConnection();
 
 function stripUndefined<T>(value: T): T {
+  if (typeof value === 'number') {
+    return (Number.isFinite(value) ? value : 0) as unknown as T;
+  }
   if (Array.isArray(value)) {
     return value.map((item) => stripUndefined(item)) as unknown as T;
   }
@@ -269,41 +274,71 @@ export interface CloudWorkspaceSnapshot {
   bonDangerInitialized?: boolean;
 }
 
-export async function loadWorkspaceFromCloud(
-  uid: string
-): Promise<CloudWorkspaceSnapshot | null> {
-  const path = `users/${uid}/workspaces/default`;
-  const ref = doc(db, 'users', uid, 'workspaces', 'default');
+export interface WorkspaceSnapshotMeta {
+  fromCache: boolean;
+  hasPendingWrites: boolean;
+}
 
-  try {
-    const snap = await getDoc(ref);
-    if (!snap.exists()) return null;
-    const data = snap.data();
-    return {
-      products: Array.isArray(data.products) ? (data.products as Product[]) : [],
-      orders: Array.isArray(data.orders) ? (data.orders as PharmacyOrder[]) : [],
-      bonDangerEntries: Array.isArray(data.bonDangerEntries)
-        ? (data.bonDangerEntries as BonDangerEntry[])
-        : [],
-      customCategories: Array.isArray(data.customCategories)
-        ? data.customCategories
-            .filter((c: unknown): c is string => typeof c === 'string' && c.trim().length > 0)
-            .map((c: string) => c.trim().slice(0, 100))
-        : [],
-      bonDangerInitialized:
-        typeof data.bonDangerInitialized === 'boolean' ? data.bonDangerInitialized : undefined,
-    };
-  } catch (error) {
-    handleFirestoreError(error, OperationType.GET, path);
-  }
+export function subscribeToWorkspace(
+  uid: string,
+  onUpdate: (snapshot: CloudWorkspaceSnapshot | null, meta: WorkspaceSnapshotMeta) => void,
+  onError: (error: unknown) => void
+): Unsubscribe {
+  const activeUid = auth.currentUser?.uid || uid;
+  const path = `users/${activeUid}/workspaces/default`;
+  const ref = doc(db, 'users', activeUid, 'workspaces', 'default');
+
+  return onSnapshot(
+    ref,
+    (snap) => {
+      const meta: WorkspaceSnapshotMeta = {
+        fromCache: snap.metadata.fromCache,
+        hasPendingWrites: snap.metadata.hasPendingWrites,
+      };
+
+      if (!snap.exists()) {
+        onUpdate(null, meta);
+        return;
+      }
+
+      const data = snap.data();
+      onUpdate(
+        {
+          products: Array.isArray(data.products) ? (data.products as Product[]) : [],
+          orders: Array.isArray(data.orders) ? (data.orders as PharmacyOrder[]) : [],
+          bonDangerEntries: Array.isArray(data.bonDangerEntries)
+            ? (data.bonDangerEntries as BonDangerEntry[])
+            : [],
+          customCategories: Array.isArray(data.customCategories)
+            ? data.customCategories
+                .filter((c: unknown): c is string => typeof c === 'string' && c.trim().length > 0)
+                .map((c: string) => c.trim().slice(0, 100))
+            : [],
+          bonDangerInitialized:
+            typeof data.bonDangerInitialized === 'boolean' ? data.bonDangerInitialized : undefined,
+        },
+        meta
+      );
+    },
+    (error) => {
+      console.error(`[PharmaFlow Sync] Erreur listener onSnapshot sur ${path}:`, error);
+      try {
+        handleFirestoreError(error, OperationType.GET, path);
+      } catch (formattedError) {
+        onError(formattedError);
+      }
+    }
+  );
 }
 
 export async function saveWorkspaceToCloud(
   uid: string,
-  snapshot: CloudWorkspaceSnapshot
+  snapshot: CloudWorkspaceSnapshot,
+  options?: { knownExists?: boolean }
 ): Promise<void> {
-  const path = `users/${uid}/workspaces/default`;
-  const ref = doc(db, 'users', uid, 'workspaces', 'default');
+  const activeUid = auth.currentUser?.uid || uid;
+  const path = `users/${activeUid}/workspaces/default`;
+  const ref = doc(db, 'users', activeUid, 'workspaces', 'default');
 
   const safeProducts = stripUndefined(snapshot.products || []).slice(0, 500);
   const safeOrders = stripUndefined(snapshot.orders || []).slice(0, 300);
@@ -316,17 +351,10 @@ export async function saveWorkspaceToCloud(
     )
   ).slice(0, 100);
 
-  let existingSnap;
-  try {
-    existingSnap = await getDoc(ref);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.GET, path);
-  }
-
-  if (!existingSnap.exists()) {
+  const createDocument = async () => {
     try {
       await setDoc(ref, {
-        uid,
+        uid: activeUid,
         hospital: 'CHP Sidi Ifni',
         serviceName: 'Service du Bloc Opératoire',
         products: safeProducts,
@@ -338,9 +366,12 @@ export async function saveWorkspaceToCloud(
         updatedAt: serverTimestamp(),
       });
     } catch (error) {
+      console.error(`[PharmaFlow Sync] Erreur création Firestore sur ${path}:`, error);
       handleFirestoreError(error, OperationType.CREATE, path);
     }
-  } else {
+  };
+
+  const updateDocument = async () => {
     try {
       await updateDoc(ref, {
         hospital: 'CHP Sidi Ifni',
@@ -353,7 +384,38 @@ export async function saveWorkspaceToCloud(
         updatedAt: serverTimestamp(),
       });
     } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code === 'not-found') {
+        await createDocument();
+        return;
+      }
+      console.error(`[PharmaFlow Sync] Erreur mise à jour Firestore sur ${path}:`, error);
       handleFirestoreError(error, OperationType.UPDATE, path);
     }
+  };
+
+  if (options?.knownExists === true) {
+    await updateDocument();
+    return;
+  }
+
+  if (options?.knownExists === false) {
+    await createDocument();
+    return;
+  }
+
+  // Fallback when existence is not yet known (e.g. manual sync before snapshot)
+  let existingSnap;
+  try {
+    existingSnap = await getDoc(ref);
+  } catch (error) {
+    console.error(`[PharmaFlow Sync] Erreur lecture Firestore sur ${path}:`, error);
+    handleFirestoreError(error, OperationType.GET, path);
+  }
+
+  if (!existingSnap.exists()) {
+    await createDocument();
+  } else {
+    await updateDocument();
   }
 }

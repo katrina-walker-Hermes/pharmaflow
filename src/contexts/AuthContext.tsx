@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useRef, ReactNode, useCallback } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
+import type { Unsubscribe } from 'firebase/firestore';
 import {
   auth,
   signInWithGooglePopup,
@@ -9,10 +10,12 @@ import {
   sendPharmaFlowPasswordReset,
   signOutGoogle,
   syncUserProfile,
-  loadWorkspaceFromCloud,
+  subscribeToWorkspace,
   saveWorkspaceToCloud,
+  CloudWorkspaceSnapshot,
 } from '../firebase';
-import { useStore } from '../store';
+import { useStore, Product, PharmacyOrder, BonDangerEntry } from '../store';
+import { normalizeCategoryName } from '../utils/categoryOrder';
 
 interface AuthContextValue {
   user: User | null;
@@ -20,6 +23,7 @@ interface AuthContextValue {
   isSigningIn: boolean;
   isSyncing: boolean;
   lastSyncAt: string | null;
+  syncError: string | null;
   authError: string | null;
   authSuccess: string | null;
   allowLocalAccess: boolean;
@@ -66,141 +70,322 @@ function mapFirebaseAuthError(error: unknown): string {
   }
 }
 
+function normalizeSnapshotForStore(snapshot: CloudWorkspaceSnapshot): {
+  products: Product[];
+  orders: PharmacyOrder[];
+  bonDangerEntries: BonDangerEntry[];
+  customCategories: string[];
+  bonDangerInitialized: boolean;
+} {
+  const products: Product[] = Array.isArray(snapshot.products)
+    ? snapshot.products.map((p) => ({
+        ...p,
+        category: normalizeCategoryName(p.category || 'Général'),
+        transactions: Array.isArray(p.transactions) ? p.transactions : [],
+      }))
+    : [];
+
+  const orders: PharmacyOrder[] = Array.isArray(snapshot.orders)
+    ? snapshot.orders.map((o) => ({
+        ...o,
+        items: Array.isArray(o.items)
+          ? o.items.map((it) => ({
+              ...it,
+              category: normalizeCategoryName(it.category || 'Général'),
+            }))
+          : [],
+      }))
+    : [];
+
+  const bonDangerEntries: BonDangerEntry[] = Array.isArray(snapshot.bonDangerEntries)
+    ? snapshot.bonDangerEntries
+    : [];
+
+  const customCategories: string[] = Array.isArray(snapshot.customCategories)
+    ? Array.from(
+        new Set(
+          snapshot.customCategories
+            .filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
+            .map((c) => normalizeCategoryName(c).slice(0, 100))
+        )
+      ).slice(0, 100)
+    : [];
+
+  return {
+    products,
+    orders,
+    bonDangerEntries,
+    customCategories,
+    bonDangerInitialized: Boolean(snapshot.bonDangerInitialized),
+  };
+}
+
+function computeWorkspaceSignature(snapshot: {
+  products: Product[];
+  orders: PharmacyOrder[];
+  bonDangerEntries: BonDangerEntry[];
+  customCategories?: string[];
+  bonDangerInitialized?: boolean;
+}): string {
+  return JSON.stringify({
+    products: snapshot.products || [],
+    orders: snapshot.orders || [],
+    bonDangerEntries: snapshot.bonDangerEntries || [],
+    customCategories: snapshot.customCategories || [],
+    bonDangerInitialized: Boolean(snapshot.bonDangerInitialized),
+  });
+}
+
+function getCurrentStoreWorkspaceSnapshot(): CloudWorkspaceSnapshot {
+  const s = useStore.getState();
+  return {
+    products: s.products || [],
+    orders: s.orders || [],
+    bonDangerEntries: s.bonDangerEntries || [],
+    customCategories: s.customCategories || [],
+    bonDangerInitialized: Boolean(s.bonDangerInitialized),
+  };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSuccess, setAuthSuccess] = useState<string | null>(null);
   const [allowLocalAccess, setAllowLocalAccess] = useState(false);
-  const [, setVerificationTick] = useState(0);
+  const [verificationTick, setVerificationTick] = useState(0);
 
-  const hasHydratedCloudForUid = useRef<string | null>(null);
+  const workspaceUnsubRef = useRef<Unsubscribe | null>(null);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isApplyingRemoteRef = useRef(false);
+  const cloudDocExistsRef = useRef<boolean | undefined>(undefined);
+  const lastSyncedSignatureRef = useRef<string | null>(null);
+  const hasReceivedInitialSnapshotRef = useRef(false);
+  const isWritingRef = useRef(false);
+  const pendingWriteRef = useRef<{ uid: string; snapshot: CloudWorkspaceSnapshot } | null>(null);
 
-  const hydrateCloudForVerifiedUser = useCallback(async (firebaseUser: User) => {
-    if (!firebaseUser.emailVerified || hasHydratedCloudForUid.current === firebaseUser.uid) {
-      return;
+  const cleanupWorkspaceSync = useCallback(() => {
+    if (workspaceUnsubRef.current) {
+      workspaceUnsubRef.current();
+      workspaceUnsubRef.current = null;
     }
-    hasHydratedCloudForUid.current = firebaseUser.uid;
-    try {
-      setIsSyncing(true);
-      await syncUserProfile(firebaseUser);
-      const cloudData = await loadWorkspaceFromCloud(firebaseUser.uid);
-      const localState = useStore.getState();
-
-      if (cloudData) {
-        const localIsEmpty =
-          localState.products.length === 0 &&
-          localState.orders.length === 0 &&
-          localState.bonDangerEntries.length === 0 &&
-          (localState.customCategories || []).length === 0;
-
-        if (
-          localIsEmpty &&
-          (cloudData.products.length > 0 ||
-            cloudData.orders.length > 0 ||
-            cloudData.bonDangerEntries.length > 0 ||
-            (cloudData.customCategories || []).length > 0)
-        ) {
-          localState.importAllData(
-            {
-              products: cloudData.products,
-              orders: cloudData.orders,
-              bonDangerEntries: cloudData.bonDangerEntries,
-              bonDangerDocuments: localState.bonDangerDocuments,
-              customCategories: cloudData.customCategories || [],
-            },
-            'replace'
-          );
-        }
-        setLastSyncAt(new Date().toISOString());
-      } else if (
-        localState.products.length > 0 ||
-        localState.orders.length > 0 ||
-        localState.bonDangerEntries.length > 0 ||
-        (localState.customCategories || []).length > 0
-      ) {
-        await saveWorkspaceToCloud(firebaseUser.uid, {
-          products: localState.products,
-          orders: localState.orders,
-          bonDangerEntries: localState.bonDangerEntries,
-          customCategories: localState.customCategories,
-          bonDangerInitialized: localState.bonDangerInitialized,
-        });
-        setLastSyncAt(new Date().toISOString());
-      }
-    } catch (err) {
-      console.error('Erreur synchronisation initiale Firebase:', err);
-    } finally {
-      setIsSyncing(false);
+    if (syncTimerRef.current) {
+      clearTimeout(syncTimerRef.current);
+      syncTimerRef.current = null;
     }
+    cloudDocExistsRef.current = undefined;
+    lastSyncedSignatureRef.current = null;
+    hasReceivedInitialSnapshotRef.current = false;
+    pendingWriteRef.current = null;
   }, []);
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser);
-      setAuthReady(true);
-
-      if (firebaseUser && firebaseUser.emailVerified) {
-        await hydrateCloudForVerifiedUser(firebaseUser);
-      }
-
-      if (!firebaseUser) {
-        hasHydratedCloudForUid.current = null;
-        setAllowLocalAccess(false);
-      }
-    });
-
-    return () => unsubscribe();
-  }, [hydrateCloudForVerifiedUser]);
-
-  // Debounced background cloud sync when local store changes for verified authenticated users
-  useEffect(() => {
-    if (!user || !user.emailVerified) return;
-
-    const unsubscribeStore = useStore.subscribe((state, prevState) => {
-      if (
-        state.products === prevState.products &&
-        state.orders === prevState.orders &&
-        state.bonDangerEntries === prevState.bonDangerEntries &&
-        state.customCategories === prevState.customCategories
-      ) {
+  const flushWorkspaceWrite = useCallback(
+    async (uid: string, snapshot: CloudWorkspaceSnapshot) => {
+      const currentUid = auth.currentUser?.uid;
+      if (!currentUid || currentUid !== uid || !auth.currentUser?.emailVerified) {
         return;
       }
 
-      if (syncTimerRef.current) {
-        clearTimeout(syncTimerRef.current);
+      if (isWritingRef.current) {
+        pendingWriteRef.current = { uid, snapshot };
+        return;
       }
 
-      syncTimerRef.current = setTimeout(async () => {
-        try {
-          setIsSyncing(true);
-          await saveWorkspaceToCloud(user.uid, {
-            products: state.products,
-            orders: state.orders,
-            bonDangerEntries: state.bonDangerEntries,
-            customCategories: state.customCategories,
-            bonDangerInitialized: state.bonDangerInitialized,
-          });
-          setLastSyncAt(new Date().toISOString());
-        } catch (err) {
-          console.error('Erreur synchronisation automatique:', err);
-        } finally {
+      isWritingRef.current = true;
+      setIsSyncing(true);
+
+      try {
+        await saveWorkspaceToCloud(uid, snapshot, {
+          knownExists: cloudDocExistsRef.current,
+        });
+        cloudDocExistsRef.current = true;
+        lastSyncedSignatureRef.current = computeWorkspaceSignature(snapshot);
+        setLastSyncAt(new Date().toISOString());
+        setSyncError(null);
+      } catch (err) {
+        console.error('[PharmaFlow Sync] Échec écriture Cloud Firestore:', err);
+        setSyncError(err instanceof Error ? err.message : 'Erreur de synchronisation Firestore');
+      } finally {
+        isWritingRef.current = false;
+        const queued = pendingWriteRef.current;
+        if (queued) {
+          pendingWriteRef.current = null;
+          void flushWorkspaceWrite(queued.uid, queued.snapshot);
+        } else {
           setIsSyncing(false);
         }
-      }, 5000);
+      }
+    },
+    []
+  );
+
+  // Track Firebase Auth session changes and ensure cleanup on sign-out
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser);
+      setAuthReady(true);
+
+      if (!firebaseUser) {
+        cleanupWorkspaceSync();
+        setAllowLocalAccess(false);
+        setIsSyncing(false);
+        setSyncError(null);
+      }
     });
 
     return () => {
-      unsubscribeStore();
-      if (syncTimerRef.current) {
-        clearTimeout(syncTimerRef.current);
-      }
+      unsubscribe();
+      cleanupWorkspaceSync();
     };
-  }, [user]);
+  }, [cleanupWorkspaceSync]);
+
+  // Real-time Firestore onSnapshot + immediate write-through sync tied to authenticated verified user
+  useEffect(() => {
+    const uid = user?.uid;
+    const isVerified = Boolean(user?.emailVerified);
+
+    if (!uid || !isVerified || !user) {
+      cleanupWorkspaceSync();
+      return;
+    }
+
+    let cancelled = false;
+    let storeUnsubscribe: (() => void) | null = null;
+    setIsSyncing(true);
+    setSyncError(null);
+
+    const startRealtimeSync = async () => {
+      try {
+        await syncUserProfile(user);
+      } catch (err) {
+        if (cancelled) return;
+        console.error('[PharmaFlow Sync] Erreur synchronisation profil utilisateur:', err);
+        setSyncError(err instanceof Error ? err.message : 'Erreur profil Firestore');
+      }
+
+      if (cancelled || !auth.currentUser || auth.currentUser.uid !== uid) {
+        return;
+      }
+
+      const activeUid = auth.currentUser.uid;
+
+      // Subscribe to real-time updates from Firestore for this authenticated user
+      const unsubSnapshot = subscribeToWorkspace(
+        activeUid,
+        (cloudData, meta) => {
+          if (cancelled || auth.currentUser?.uid !== activeUid) return;
+
+          // Ignore echoes from our own local pending writes once initialized
+          if (meta.hasPendingWrites && hasReceivedInitialSnapshotRef.current) {
+            return;
+          }
+
+          if (!cloudData) {
+            cloudDocExistsRef.current = false;
+            hasReceivedInitialSnapshotRef.current = true;
+            const localSnapshot = getCurrentStoreWorkspaceSnapshot();
+            void flushWorkspaceWrite(activeUid, localSnapshot);
+            return;
+          }
+
+          cloudDocExistsRef.current = true;
+          const normalized = normalizeSnapshotForStore(cloudData);
+          const remoteSig = computeWorkspaceSignature(normalized);
+
+          if (remoteSig !== lastSyncedSignatureRef.current) {
+            isApplyingRemoteRef.current = true;
+            try {
+              useStore.setState({
+                products: normalized.products,
+                orders: normalized.orders,
+                bonDangerEntries: normalized.bonDangerEntries,
+                customCategories: normalized.customCategories,
+                bonDangerInitialized: normalized.bonDangerInitialized,
+              });
+              lastSyncedSignatureRef.current = remoteSig;
+            } finally {
+              isApplyingRemoteRef.current = false;
+            }
+          }
+
+          hasReceivedInitialSnapshotRef.current = true;
+          setLastSyncAt(new Date().toISOString());
+          setSyncError(null);
+          if (!isWritingRef.current) {
+            setIsSyncing(false);
+          }
+        },
+        (error) => {
+          if (cancelled) return;
+          console.error('[PharmaFlow Sync] Erreur listener Firestore:', error);
+          setSyncError(error instanceof Error ? error.message : 'Erreur listener Firestore');
+          setIsSyncing(false);
+        }
+      );
+
+      if (cancelled) {
+        unsubSnapshot();
+        return;
+      }
+      workspaceUnsubRef.current = unsubSnapshot;
+
+      // Subscribe to local Zustand mutations and push directly to Cloud Firestore in real time
+      storeUnsubscribe = useStore.subscribe((state, prevState) => {
+        if (isApplyingRemoteRef.current || !hasReceivedInitialSnapshotRef.current) {
+          return;
+        }
+
+        if (
+          state.products === prevState.products &&
+          state.orders === prevState.orders &&
+          state.bonDangerEntries === prevState.bonDangerEntries &&
+          state.customCategories === prevState.customCategories &&
+          state.bonDangerInitialized === prevState.bonDangerInitialized
+        ) {
+          return;
+        }
+
+        const nextSnapshot: CloudWorkspaceSnapshot = {
+          products: state.products || [],
+          orders: state.orders || [],
+          bonDangerEntries: state.bonDangerEntries || [],
+          customCategories: state.customCategories || [],
+          bonDangerInitialized: Boolean(state.bonDangerInitialized),
+        };
+
+        const sig = computeWorkspaceSignature(nextSnapshot);
+        if (sig === lastSyncedSignatureRef.current) {
+          return;
+        }
+
+        if (syncTimerRef.current) {
+          clearTimeout(syncTimerRef.current);
+        }
+
+        // Micro-coalesce 50ms for rapid synchronous actions, then write immediately to Firestore
+        syncTimerRef.current = setTimeout(() => {
+          syncTimerRef.current = null;
+          if (!cancelled && auth.currentUser?.uid === activeUid) {
+            void flushWorkspaceWrite(activeUid, nextSnapshot);
+          }
+        }, 50);
+      });
+    };
+
+    void startRealtimeSync();
+
+    return () => {
+      cancelled = true;
+      if (storeUnsubscribe) {
+        storeUnsubscribe();
+      }
+      cleanupWorkspaceSync();
+    };
+  }, [user, user?.uid, user?.emailVerified, verificationTick, cleanupWorkspaceSync, flushWorkspaceWrite]);
 
   const signInWithGmail = useCallback(async () => {
     setAuthError(null);
@@ -289,7 +474,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setVerificationTick((v) => v + 1);
       if (updatedUser.emailVerified) {
         setAuthSuccess('E-mail vérifié avec succès !');
-        await hydrateCloudForVerifiedUser(updatedUser);
         return true;
       }
       setAuthError("Votre e-mail n'est pas encore marqué comme vérifié. Cliquez sur le lien reçu dans votre boîte mail puis réessayez.");
@@ -300,7 +484,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsSigningIn(false);
     }
-  }, [hydrateCloudForVerifiedUser]);
+  }, []);
 
   const continueLocalWithoutVerification = useCallback(() => {
     setAllowLocalAccess(true);
@@ -310,30 +494,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthError(null);
     setAuthSuccess(null);
     setAllowLocalAccess(false);
+    cleanupWorkspaceSync();
     try {
       await signOutGoogle();
     } catch (error) {
       console.error('Erreur lors de la déconnexion:', error);
     }
-  }, []);
+  }, [cleanupWorkspaceSync]);
 
   const syncNow = useCallback(async () => {
-    if (!user || !user.emailVerified) return;
-    setIsSyncing(true);
-    try {
-      const state = useStore.getState();
-      await saveWorkspaceToCloud(user.uid, {
-        products: state.products,
-        orders: state.orders,
-        bonDangerEntries: state.bonDangerEntries,
-        customCategories: state.customCategories,
-        bonDangerInitialized: state.bonDangerInitialized,
-      });
-      setLastSyncAt(new Date().toISOString());
-    } finally {
-      setIsSyncing(false);
-    }
-  }, [user]);
+    const activeUser = auth.currentUser || user;
+    if (!activeUser || !activeUser.emailVerified) return;
+    const snapshot = getCurrentStoreWorkspaceSnapshot();
+    await flushWorkspaceWrite(activeUser.uid, snapshot);
+  }, [user, flushWorkspaceWrite]);
 
   const clearAuthMessages = useCallback(() => {
     setAuthError(null);
@@ -348,6 +522,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isSigningIn,
         isSyncing,
         lastSyncAt,
+        syncError,
         authError,
         authSuccess,
         allowLocalAccess,
