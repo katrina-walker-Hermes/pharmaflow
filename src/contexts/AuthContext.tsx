@@ -95,13 +95,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const localIsEmpty =
           localState.products.length === 0 &&
           localState.orders.length === 0 &&
-          localState.bonDangerEntries.length === 0;
+          localState.bonDangerEntries.length === 0 &&
+          (localState.customCategories || []).length === 0;
 
         if (
           localIsEmpty &&
           (cloudData.products.length > 0 ||
             cloudData.orders.length > 0 ||
-            cloudData.bonDangerEntries.length > 0)
+            cloudData.bonDangerEntries.length > 0 ||
+            (cloudData.customCategories || []).length > 0)
         ) {
           localState.importAllData(
             {
@@ -109,6 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               orders: cloudData.orders,
               bonDangerEntries: cloudData.bonDangerEntries,
               bonDangerDocuments: localState.bonDangerDocuments,
+              customCategories: cloudData.customCategories || [],
             },
             'replace'
           );
@@ -117,12 +120,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else if (
         localState.products.length > 0 ||
         localState.orders.length > 0 ||
-        localState.bonDangerEntries.length > 0
+        localState.bonDangerEntries.length > 0 ||
+        (localState.customCategories || []).length > 0
       ) {
         await saveWorkspaceToCloud(firebaseUser.uid, {
           products: localState.products,
           orders: localState.orders,
           bonDangerEntries: localState.bonDangerEntries,
+          customCategories: localState.customCategories,
           bonDangerInitialized: localState.bonDangerInitialized,
         });
         setLastSyncAt(new Date().toISOString());
@@ -160,7 +165,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (
         state.products === prevState.products &&
         state.orders === prevState.orders &&
-        state.bonDangerEntries === prevState.bonDangerEntries
+        state.bonDangerEntries === prevState.bonDangerEntries &&
+        state.customCategories === prevState.customCategories
       ) {
         return;
       }
@@ -176,6 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             products: state.products,
             orders: state.orders,
             bonDangerEntries: state.bonDangerEntries,
+            customCategories: state.customCategories,
             bonDangerInitialized: state.bonDangerInitialized,
           });
           setLastSyncAt(new Date().toISOString());
@@ -319,6 +326,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         products: state.products,
         orders: state.orders,
         bonDangerEntries: state.bonDangerEntries,
+        customCategories: state.customCategories,
         bonDangerInitialized: state.bonDangerInitialized,
       });
       setLastSyncAt(new Date().toISOString());

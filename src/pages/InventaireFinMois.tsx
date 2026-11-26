@@ -20,6 +20,7 @@ type TargetFormula = 'qmc' | 'qmc_plus_sec' | 'sec_x2';
 export default function InventaireFinMois() {
   const navigate = useNavigate();
   const products = useStore((state) => state.products);
+  const customCategories = useStore((state) => state.customCategories);
   const recordBulkPeriodicInventory = useStore((state) => state.recordBulkPeriodicInventory);
   const createOrder = useStore((state) => state.createOrder);
 
@@ -51,12 +52,12 @@ export default function InventaireFinMois() {
   }, [products]);
 
   const categories = useMemo(() => {
-    const cats = new Set<string>();
+    const cats = new Set<string>(Array.isArray(customCategories) ? customCategories : []);
     sortedProducts.forEach((p) => {
       if (p?.category) cats.add(p.category);
     });
     return sortCategories(Array.from(cats));
-  }, [sortedProducts]);
+  }, [sortedProducts, customCategories]);
 
   const computeRecommendedOrder = (product: Product, countedQty: number): number => {
     const qmc = Number(product.quantiteMoyenneMensuelle) || 0;

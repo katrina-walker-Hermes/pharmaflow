@@ -29,6 +29,7 @@ export default function FicheStock() {
   const navigate = useNavigate();
 
   const products = useStore((state) => state.products);
+  const customCategories = useStore((state) => state.customCategories);
   const seedDatabase = useStore((state) => state.seedDatabase);
   const addTransaction = useStore((state) => state.addTransaction);
   const updateTransaction = useStore((state) => state.updateTransaction);
@@ -45,13 +46,19 @@ export default function FicheStock() {
 
   // Categories list in clinical sequence
   const allCategories = useMemo(() => {
-    if (!Array.isArray(products)) return [];
     const cats = new Set<string>();
-    products.forEach((p) => {
-      if (p && p.category) cats.add(p.category);
-    });
+    if (Array.isArray(customCategories)) {
+      customCategories.forEach((c) => {
+        if (c) cats.add(c);
+      });
+    }
+    if (Array.isArray(products)) {
+      products.forEach((p) => {
+        if (p && p.category) cats.add(p.category);
+      });
+    }
     return sortCategories(Array.from(cats));
-  }, [products]);
+  }, [products, customCategories]);
 
   // Master product list sorted by clinical category order, then alphabetical by name
   const sortedProducts = useMemo(() => {

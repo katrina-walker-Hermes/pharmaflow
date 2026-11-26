@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
 import { seedData } from './data/seed';
-import { normalizeCategoryName } from './utils/categoryOrder';
+import { ORDERED_CATEGORIES, normalizeCategoryName } from './utils/categoryOrder';
 
 export interface Transaction {
   id: string;
@@ -98,6 +98,7 @@ export interface AppBackupData {
   orders: PharmacyOrder[];
   bonDangerEntries: BonDangerEntry[];
   bonDangerDocuments: BonDangerDocument[];
+  customCategories?: string[];
 }
 
 interface NewProductInput {
@@ -119,8 +120,12 @@ interface AppState {
   orders: PharmacyOrder[];
   bonDangerEntries: BonDangerEntry[];
   bonDangerDocuments: BonDangerDocument[];
+  customCategories: string[];
   bonDangerInitialized?: boolean;
   
+  addCategory: (name: string) => { success: boolean; category?: string; message?: string };
+  renameCategory: (oldName: string, newName: string) => { success: boolean; message?: string };
+  deleteCategory: (name: string) => { success: boolean; message?: string };
   addProduct: (product: NewProductInput) => void;
   updateProduct: (id: string, updates: Partial<Product>) => void;
   deleteProduct: (id: string) => void;
@@ -184,13 +189,109 @@ export const useStore = create<AppState>()(
       orders: [],
       bonDangerEntries: [],
       bonDangerDocuments: [],
+      customCategories: [],
       bonDangerInitialized: false,
+
+      addCategory: (rawName: string) => {
+        const normalized = normalizeCategoryName(rawName).slice(0, 100);
+        if (!normalized || normalized === 'Général' && !rawName.trim()) {
+          return { success: false, message: 'Veuillez saisir un nom de catégorie valide.' };
+        }
+        const state = get();
+        const existingCategories = new Set<string>([
+          ...ORDERED_CATEGORIES,
+          ...(state.customCategories || []),
+          ...(state.products || []).map((p) => p?.category).filter(Boolean),
+        ]);
+        const duplicate = Array.from(existingCategories).find(
+          (c) => c.trim().toLowerCase() === normalized.toLowerCase()
+        );
+        if (duplicate) {
+          return { success: false, message: `La catégorie « ${duplicate} » existe déjà.` };
+        }
+        const updatedCustom = [...(state.customCategories || []), normalized].slice(0, 100);
+        set({ customCategories: updatedCustom });
+        return { success: true, category: normalized };
+      },
+
+      renameCategory: (oldName: string, newName: string) => {
+        const trimmedOld = (oldName || '').trim();
+        const normalizedNew = normalizeCategoryName(newName).slice(0, 100);
+        if (!trimmedOld || !normalizedNew || (!newName.trim() && normalizedNew === 'Général')) {
+          return { success: false, message: 'Veuillez saisir un nouveau nom de catégorie valide.' };
+        }
+        if ((ORDERED_CATEGORIES as readonly string[]).some((c) => c.toLowerCase() === trimmedOld.toLowerCase())) {
+          return { success: false, message: 'Les 15 catégories cliniques standard ne peuvent pas être renommées.' };
+        }
+        const state = get();
+        const existingCategories = new Set<string>([
+          ...ORDERED_CATEGORIES,
+          ...(state.customCategories || []),
+          ...(state.products || []).map((p) => p?.category).filter(Boolean),
+        ]);
+        const conflict = Array.from(existingCategories).find(
+          (c) => c.toLowerCase() === normalizedNew.toLowerCase() && c.toLowerCase() !== trimmedOld.toLowerCase()
+        );
+        if (conflict) {
+          return { success: false, message: `La catégorie « ${conflict} » existe déjà.` };
+        }
+        const isStandardTarget = (ORDERED_CATEGORIES as readonly string[]).some(
+          (c) => c.toLowerCase() === normalizedNew.toLowerCase()
+        );
+        const nextCustom = (state.customCategories || [])
+          .filter((c) => c.toLowerCase() !== trimmedOld.toLowerCase());
+        if (!isStandardTarget && !nextCustom.some((c) => c.toLowerCase() === normalizedNew.toLowerCase())) {
+          nextCustom.push(normalizedNew);
+        }
+        set({
+          customCategories: nextCustom.slice(0, 100),
+          products: (state.products || []).map((p) =>
+            p.category.trim().toLowerCase() === trimmedOld.toLowerCase()
+              ? { ...p, category: normalizedNew }
+              : p
+          ),
+          orders: (state.orders || []).map((o) => ({
+            ...o,
+            items: (o.items || []).map((it) =>
+              it.category.trim().toLowerCase() === trimmedOld.toLowerCase()
+                ? { ...it, category: normalizedNew }
+                : it
+            ),
+          })),
+        });
+        return { success: true };
+      },
+
+      deleteCategory: (categoryName: string) => {
+        const trimmed = (categoryName || '').trim();
+        if (!trimmed) return { success: false, message: 'Nom de catégorie invalide.' };
+        if ((ORDERED_CATEGORIES as readonly string[]).some((c) => c.toLowerCase() === trimmed.toLowerCase())) {
+          return { success: false, message: 'Les catégories cliniques standard ne peuvent pas être supprimées.' };
+        }
+        const state = get();
+        const usedByProducts = (state.products || []).some(
+          (p) => p?.category?.trim().toLowerCase() === trimmed.toLowerCase()
+        );
+        if (usedByProducts) {
+          return {
+            success: false,
+            message: 'Impossible de supprimer une catégorie qui contient encore des produits. Déplacez ou supprimez d’abord ses produits.',
+          };
+        }
+        set({
+          customCategories: (state.customCategories || []).filter(
+            (c) => c.trim().toLowerCase() !== trimmed.toLowerCase()
+          ),
+        });
+        return { success: true };
+      },
       
       addProduct: (input) => set((state) => {
         const productId = uuidv4();
         const transactions: Transaction[] = [];
 
         const resolvedUnit = input.unite?.trim() || 'Unité';
+        const resolvedCategory = normalizeCategoryName(input.category).slice(0, 100);
 
         if (input.initialStock && input.initialStock > 0) {
           transactions.push({
@@ -208,7 +309,7 @@ export const useStore = create<AppState>()(
         const newProd: Product = {
           id: productId,
           name: input.name.trim(),
-          category: normalizeCategoryName(input.category),
+          category: resolvedCategory,
           unite: resolvedUnit,
           isImportant: input.isImportant,
           stockSecurite: Number(input.stockSecurite) || 0,
@@ -217,19 +318,38 @@ export const useStore = create<AppState>()(
           transactions,
         };
 
-        return { products: [newProd, ...state.products] };
+        const isStandard = (ORDERED_CATEGORIES as readonly string[]).some(
+          (c) => c.toLowerCase() === resolvedCategory.toLowerCase()
+        );
+        const currentCustom = state.customCategories || [];
+        const hasCustom = currentCustom.some((c) => c.toLowerCase() === resolvedCategory.toLowerCase());
+        const nextCustom = !isStandard && !hasCustom
+          ? [...currentCustom, resolvedCategory].slice(0, 100)
+          : currentCustom;
+
+        return { products: [newProd, ...state.products], customCategories: nextCustom };
       }),
       
-      updateProduct: (id, updates) => set((state) => ({
-        products: state.products.map(p => {
+      updateProduct: (id, updates) => set((state) => {
+        let nextCustom = state.customCategories || [];
+        const nextProducts = state.products.map(p => {
           if (p.id !== id) return p;
           const merged = { ...p, ...updates };
           if (updates.category) {
-            merged.category = normalizeCategoryName(updates.category);
+            const resolvedCategory = normalizeCategoryName(updates.category).slice(0, 100);
+            merged.category = resolvedCategory;
+            const isStandard = (ORDERED_CATEGORIES as readonly string[]).some(
+              (c) => c.toLowerCase() === resolvedCategory.toLowerCase()
+            );
+            const hasCustom = nextCustom.some((c) => c.toLowerCase() === resolvedCategory.toLowerCase());
+            if (!isStandard && !hasCustom) {
+              nextCustom = [...nextCustom, resolvedCategory].slice(0, 100);
+            }
           }
           return merged;
-        })
-      })),
+        });
+        return { products: nextProducts, customCategories: nextCustom };
+      }),
       
       deleteProduct: (id) => set((state) => ({
         products: state.products.filter(p => p.id !== id)
@@ -819,6 +939,7 @@ export const useStore = create<AppState>()(
           orders: state.orders || [],
           bonDangerEntries: state.bonDangerEntries || [],
           bonDangerDocuments: state.bonDangerDocuments || [],
+          customCategories: state.customCategories || [],
         };
       },
 
@@ -831,6 +952,7 @@ export const useStore = create<AppState>()(
         let importedOrders: any[] = [];
         let importedBonDangerEntries: any[] = [];
         let importedBonDangerDocuments: any[] = [];
+        let importedCustomCategories: string[] = [];
 
         if (Array.isArray(rawPayload)) {
           // Direct array of products
@@ -848,9 +970,19 @@ export const useStore = create<AppState>()(
           if (Array.isArray(rawPayload.bonDangerDocuments)) {
             importedBonDangerDocuments = rawPayload.bonDangerDocuments;
           }
+          if (Array.isArray(rawPayload.customCategories)) {
+            importedCustomCategories = rawPayload.customCategories
+              .filter((c: unknown) => typeof c === 'string' && c.trim().length > 0)
+              .map((c: string) => normalizeCategoryName(c).slice(0, 100));
+          }
         }
 
-        if (importedProducts.length === 0 && importedOrders.length === 0 && importedBonDangerEntries.length === 0) {
+        if (
+          importedProducts.length === 0 &&
+          importedOrders.length === 0 &&
+          importedBonDangerEntries.length === 0 &&
+          importedCustomCategories.length === 0
+        ) {
           return {
             success: false,
             message: 'Aucune donnée exploitable (produits, commandes ou fiches) détectée dans ce fichier JSON.',
@@ -910,11 +1042,21 @@ export const useStore = create<AppState>()(
         }));
 
         if (mode === 'replace') {
+          const mergedCustom = Array.from(
+            new Set([
+              ...importedCustomCategories,
+              ...sanitizedProducts
+                .map((p) => p.category)
+                .filter((c) => !(ORDERED_CATEGORIES as readonly string[]).some((o) => o.toLowerCase() === c.toLowerCase())),
+            ])
+          ).slice(0, 100);
+
           set({
             products: sanitizedProducts,
             orders: sanitizedOrders,
             bonDangerEntries: importedBonDangerEntries,
             bonDangerDocuments: importedBonDangerDocuments,
+            customCategories: mergedCustom,
             bonDangerInitialized: true,
           });
 
@@ -982,11 +1124,27 @@ export const useStore = create<AppState>()(
               }
             });
 
+            // Merge customCategories
+            const nextCustom = [...(state.customCategories || [])];
+            const seenCustom = new Set(nextCustom.map((c) => c.toLowerCase()));
+            [
+              ...importedCustomCategories,
+              ...sanitizedProducts
+                .map((p) => p.category)
+                .filter((c) => !(ORDERED_CATEGORIES as readonly string[]).some((o) => o.toLowerCase() === c.toLowerCase())),
+            ].forEach((c) => {
+              if (c && !seenCustom.has(c.toLowerCase())) {
+                seenCustom.add(c.toLowerCase());
+                nextCustom.push(c);
+              }
+            });
+
             return {
               products: existingProds,
               orders: existingOrders,
               bonDangerEntries: existingBonDanger,
               bonDangerDocuments: existingDocs,
+              customCategories: nextCustom.slice(0, 100),
               bonDangerInitialized: true,
             };
           });
@@ -1001,7 +1159,7 @@ export const useStore = create<AppState>()(
     }),
     {
       name: 'pharmacie-stock-storage',
-      version: 7,
+      version: 8,
       migrate: (persistedState: any, version: number) => {
         if (!persistedState) return persistedState;
         const products = Array.isArray(persistedState.products)
@@ -1024,6 +1182,9 @@ export const useStore = create<AppState>()(
           : [];
         const bonDangerEntries = Array.isArray(persistedState.bonDangerEntries) ? persistedState.bonDangerEntries : [];
         const bonDangerDocuments = Array.isArray(persistedState.bonDangerDocuments) ? persistedState.bonDangerDocuments : [];
+        const customCategories = Array.isArray(persistedState.customCategories)
+          ? persistedState.customCategories.filter((c: unknown) => typeof c === 'string' && c.trim().length > 0)
+          : [];
         const bonDangerInitialized = Boolean(persistedState.bonDangerInitialized);
         return {
           ...persistedState,
@@ -1031,6 +1192,7 @@ export const useStore = create<AppState>()(
           orders,
           bonDangerEntries,
           bonDangerDocuments,
+          customCategories,
           bonDangerInitialized
         } as AppState;
       },

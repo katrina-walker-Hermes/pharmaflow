@@ -112,6 +112,10 @@
           "type": "boolean",
           "description": "Tracks whether Le Bon Danger initial state was configured."
         },
+        "customCategories": {
+          "type": "array",
+          "description": "Bounded list of user-created custom product categories (max 100 strings, each max 100 chars)."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",

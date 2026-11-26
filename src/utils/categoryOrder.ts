@@ -41,9 +41,49 @@ export const ORDERED_CATEGORIES = [
 
 export type OrderedCategory = typeof ORDERED_CATEGORIES[number];
 
+const LEGACY_CATEGORY_ALIASES: Record<string, OrderedCategory> = {
+  "medicaments d'anesthesie": "Médicaments d'anesthésie",
+  "anesthesie": "Médicaments d'anesthésie",
+  "anesthesiques": "Médicaments d'anesthésie",
+  "vaso-actifs": "Vaso-actifs",
+  "vasoactifs": "Vaso-actifs",
+  "vaso actifs": "Vaso-actifs",
+  "anti hta": "Anti HTA",
+  "anti-hta": "Anti HTA",
+  "anti-hypertenseurs": "Anti HTA",
+  "antihypertenseurs": "Anti HTA",
+  "broncho actifs": "Broncho actifs",
+  "broncho-actifs": "Broncho actifs",
+  "bronchodilatateurs": "Broncho actifs",
+  "mineraux": "Minéraux",
+  "solutes": "Solutés",
+  "anti hemorragiques": "Anti hémorragiques",
+  "anti-hemorragiques": "Anti hémorragiques",
+  "antihemorragiques": "Anti hémorragiques",
+  "antibiotiques": "Antibiotiques",
+  "anti-inflammatoires": "Anti-inflammatoires",
+  "anti inflammatoires": "Anti-inflammatoires",
+  "antiinflammatoires": "Anti-inflammatoires",
+  "abord veineux et rachidien": "Abord veineux et rachidien",
+  "abord veineux": "Abord veineux et rachidien",
+  "abord rachidien": "Abord veineux et rachidien",
+  "airway": "Airway",
+  "materiel chirurgicales tranchant/invasive": "Matériel chirurgicales tranchant/invasive",
+  "materiel chirurgical tranchant/invasive": "Matériel chirurgicales tranchant/invasive",
+  "materiel chirurgical": "Matériel chirurgicales tranchant/invasive",
+  "fils de suture fongibles": "Fils de suture fongibles",
+  "fils de suture": "Fils de suture fongibles",
+  "fils de suture et fongibles": "Fils de suture fongibles",
+  "fongibles": "Fils de suture fongibles",
+  "sutures": "Fils de suture fongibles",
+  "sondage urinaire": "Sondage urinaire",
+  "sondage gastrique": "Sondage gastrique",
+};
+
 /**
- * Normalizes category strings (removing accents, hyphens, case differences)
- * and maps historical or varied category aliases to the official 15 categories.
+ * Normalizes category strings (removing accents, case differences)
+ * and maps known historical aliases to the official 15 categories,
+ * while preserving user-created custom category names verbatim.
  */
 export function normalizeCategoryName(categoryName?: string | null): string {
   if (!categoryName) return "Général";
@@ -56,89 +96,19 @@ export function normalizeCategoryName(categoryName?: string | null): string {
   );
   if (exactMatch) return exactMatch;
 
-  // Normalized string for fuzzy matching
+  // Normalized string for exact alias matching
   const clean = trimmed
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/['’]/g, "'");
+    .replace(/['’]/g, "'")
+    .replace(/\s+/g, ' ');
 
-  // Rule 1: Médicaments d'anesthésie
-  if (clean.includes('anesthesie')) {
-    return "Médicaments d'anesthésie";
+  if (LEGACY_CATEGORY_ALIASES[clean]) {
+    return LEGACY_CATEGORY_ALIASES[clean];
   }
 
-  // Rule 2: Vaso-actifs
-  if (clean.includes('vaso')) {
-    return "Vaso-actifs";
-  }
-
-  // Rule 3: Anti HTA / Anti-hypertenseurs
-  if (clean.includes('hta') || clean.includes('hyperten')) {
-    return "Anti HTA";
-  }
-
-  // Rule 4: Broncho actifs
-  if (clean.includes('broncho')) {
-    return "Broncho actifs";
-  }
-
-  // Rule 5: Minéraux
-  if (clean.includes('miner')) {
-    return "Minéraux";
-  }
-
-  // Rule 6: Solutés
-  if (clean.includes('solut')) {
-    return "Solutés";
-  }
-
-  // Rule 7: Anti hémorragiques
-  if (clean.includes('hemorrag')) {
-    return "Anti hémorragiques";
-  }
-
-  // Rule 8: Antibiotiques
-  if (clean.includes('antibio')) {
-    return "Antibiotiques";
-  }
-
-  // Rule 9: Anti-inflammatoires
-  if (clean.includes('inflam')) {
-    return "Anti-inflammatoires";
-  }
-
-  // Rule 10: Abord veineux et rachidien
-  if (clean.includes('veineux') || clean.includes('rachidien') || (clean.includes('abord') && !clean.includes('peri'))) {
-    return "Abord veineux et rachidien";
-  }
-
-  // Rule 11: Airway
-  if (clean.includes('airway')) {
-    return "Airway";
-  }
-
-  // Rule 12: Matériel chirurgicales tranchant/invasive
-  if (clean.includes('tranchant') || clean.includes('invasiv') || (clean.includes('materiel') && clean.includes('chirurg'))) {
-    return "Matériel chirurgicales tranchant/invasive";
-  }
-
-  // Rule 13: Fils de suture fongibles (covers FILS DE SUTURE, FONGIBLES, etc.)
-  if (clean.includes('suture') || clean.includes('fongible')) {
-    return "Fils de suture fongibles";
-  }
-
-  // Rule 14: Sondage urinaire
-  if (clean.includes('urinaire')) {
-    return "Sondage urinaire";
-  }
-
-  // Rule 15: Sondage gastrique
-  if (clean.includes('gastrique') && clean.includes('sond')) {
-    return "Sondage gastrique";
-  }
-
-  // If already matches one of the canonical categories without accent
+  // Exact accent-insensitive match against canonical categories
   for (const cat of ORDERED_CATEGORIES) {
     const catClean = cat
       .normalize('NFD')

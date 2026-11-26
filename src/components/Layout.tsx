@@ -16,13 +16,15 @@ import {
   LogOut,
   Cloud,
   RefreshCw,
-  ClipboardCheck
+  ClipboardCheck,
+  FolderPlus
 } from 'lucide-react';
 import { useState } from 'react';
 import { clsx } from 'clsx';
 import { useStore } from '../store';
 import { useAuth } from '../contexts/AuthContext';
 import AddProductModal from './AddProductModal';
+import AddCategoryModal from './AddCategoryModal';
 import ResetConfirmModal from './ResetConfirmModal';
 import ExportPdfModal from './ExportPdfModal';
 import JsonBackupModal from './JsonBackupModal';
@@ -32,6 +34,8 @@ import MobileBottomNav from './MobileBottomNav';
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [addProductDefaultCategory, setAddProductDefaultCategory] = useState('');
+  const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
   const [isJsonBackupOpen, setIsJsonBackupOpen] = useState(false);
@@ -172,6 +176,19 @@ export default function Layout() {
               <button
                 type="button"
                 onClick={() => {
+                  setIsAddCategoryOpen(true);
+                  setSidebarOpen(false);
+                }}
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-teal-800/90 border border-teal-700 px-3 py-2 text-xs font-semibold text-teal-100 shadow-2xs hover:bg-teal-700 hover:text-white transition-colors"
+              >
+                <FolderPlus className="h-4 w-4 text-teal-300" />
+                Nouvelle Catégorie
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setAddProductDefaultCategory('');
                   setIsAddModalOpen(true);
                   setSidebarOpen(false);
                 }}
@@ -391,7 +408,19 @@ export default function Layout() {
       <MobileBottomNav />
 
       {/* Global Modals */}
-      <AddProductModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} />
+      <AddCategoryModal
+        isOpen={isAddCategoryOpen}
+        onClose={() => setIsAddCategoryOpen(false)}
+        onCreateAndAddProduct={(cat) => {
+          setAddProductDefaultCategory(cat);
+          setIsAddModalOpen(true);
+        }}
+      />
+      <AddProductModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        defaultCategory={addProductDefaultCategory}
+      />
       <ResetConfirmModal isOpen={isResetModalOpen} onClose={() => setIsResetModalOpen(false)} />
       <ExportPdfModal isOpen={isExportPdfOpen} onClose={() => setIsExportPdfOpen(false)} />
       <JsonBackupModal isOpen={isJsonBackupOpen} onClose={() => setIsJsonBackupOpen(false)} />

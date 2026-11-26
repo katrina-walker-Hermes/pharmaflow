@@ -17,7 +17,10 @@ const MONTHS = [
 
 export default function ExportPdfModal({ isOpen, onClose, defaultCategory }: ExportPdfModalProps) {
   const products = useStore((state) => state.products);
-  const categories = sortCategories(Array.from(new Set(products.map((p) => p.category))));
+  const customCategories = useStore((state) => state.customCategories);
+  const categories = sortCategories(
+    Array.from(new Set([...(customCategories || []), ...products.map((p) => p.category)]))
+  );
 
   const currentMonthIdx = new Date().getMonth();
   const currentYear = new Date().getFullYear();

@@ -265,6 +265,7 @@ export interface CloudWorkspaceSnapshot {
   products: Product[];
   orders: PharmacyOrder[];
   bonDangerEntries: BonDangerEntry[];
+  customCategories?: string[];
   bonDangerInitialized?: boolean;
 }
 
@@ -284,6 +285,11 @@ export async function loadWorkspaceFromCloud(
       bonDangerEntries: Array.isArray(data.bonDangerEntries)
         ? (data.bonDangerEntries as BonDangerEntry[])
         : [],
+      customCategories: Array.isArray(data.customCategories)
+        ? data.customCategories
+            .filter((c: unknown): c is string => typeof c === 'string' && c.trim().length > 0)
+            .map((c: string) => c.trim().slice(0, 100))
+        : [],
       bonDangerInitialized:
         typeof data.bonDangerInitialized === 'boolean' ? data.bonDangerInitialized : undefined,
     };
@@ -302,6 +308,13 @@ export async function saveWorkspaceToCloud(
   const safeProducts = stripUndefined(snapshot.products || []).slice(0, 500);
   const safeOrders = stripUndefined(snapshot.orders || []).slice(0, 300);
   const safeBonDanger = stripUndefined(snapshot.bonDangerEntries || []).slice(0, 500);
+  const safeCustomCategories = Array.from(
+    new Set(
+      (snapshot.customCategories || [])
+        .filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
+        .map((c) => c.trim().slice(0, 100))
+    )
+  ).slice(0, 100);
 
   let existingSnap;
   try {
@@ -319,6 +332,7 @@ export async function saveWorkspaceToCloud(
         products: safeProducts,
         orders: safeOrders,
         bonDangerEntries: safeBonDanger,
+        customCategories: safeCustomCategories,
         bonDangerInitialized: Boolean(snapshot.bonDangerInitialized),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -334,6 +348,7 @@ export async function saveWorkspaceToCloud(
         products: safeProducts,
         orders: safeOrders,
         bonDangerEntries: safeBonDanger,
+        customCategories: safeCustomCategories,
         bonDangerInitialized: Boolean(snapshot.bonDangerInitialized),
         updatedAt: serverTimestamp(),
       });

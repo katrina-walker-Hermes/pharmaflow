@@ -55,7 +55,7 @@ service cloud.firestore {
 
     function isValidPharmacyWorkspace(data, userId) {
       return data.keys().hasAll(['uid', 'hospital', 'serviceName', 'products', 'orders', 'bonDangerEntries', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['uid', 'hospital', 'serviceName', 'products', 'orders', 'bonDangerEntries', 'bonDangerInitialized', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'hospital', 'serviceName', 'products', 'orders', 'bonDangerEntries', 'bonDangerInitialized', 'customCategories', 'createdAt', 'updatedAt'])
         && data.uid is string && data.uid == userId && isValidId(data.uid)
         && data.hospital is string && data.hospital.size() >= 1 && data.hospital.size() <= 120
         && data.serviceName is string && data.serviceName.size() >= 1 && data.serviceName.size() <= 120
@@ -63,6 +63,7 @@ service cloud.firestore {
         && data.orders is list && data.orders.size() <= 300 && (data.orders.size() == 0 || data.orders[0] is map)
         && data.bonDangerEntries is list && data.bonDangerEntries.size() <= 500 && (data.bonDangerEntries.size() == 0 || data.bonDangerEntries[0] is map)
         && (!('bonDangerInitialized' in data) || data.bonDangerInitialized is bool)
+        && (!('customCategories' in data) || (data.customCategories is list && data.customCategories.size() <= 100 && (data.customCategories.size() == 0 || (data.customCategories[0] is string && data.customCategories[0].size() >= 1 && data.customCategories[0].size() <= 100))))
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -138,7 +139,7 @@ service cloud.firestore {
           && incoming().uid == existing().uid
           && incoming().createdAt == existing().createdAt
           && incoming().updatedAt == request.time
-          && incoming().diff(existing()).affectedKeys().hasOnly(['hospital', 'serviceName', 'products', 'orders', 'bonDangerEntries', 'bonDangerInitialized', 'updatedAt']);
+          && incoming().diff(existing()).affectedKeys().hasOnly(['hospital', 'serviceName', 'products', 'orders', 'bonDangerEntries', 'bonDangerInitialized', 'customCategories', 'updatedAt']);
 
         allow delete: if isValidId(userId) && isValidId(workspaceId) && workspaceId == 'default'
           && isOwner(userId)

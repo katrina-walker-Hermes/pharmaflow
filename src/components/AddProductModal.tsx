@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { X, Plus, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { clsx } from 'clsx';
@@ -19,10 +19,15 @@ export default function AddProductModal({
   onProductAdded,
 }: AddProductModalProps) {
   const products = useStore((state) => state.products);
+  const customCategories = useStore((state) => state.customCategories);
   const addProduct = useStore((state) => state.addProduct);
 
-  // List categories ordered by the clinical sequence, with the 15 standard categories readily available
-  const existingSet = new Set<string>([...ORDERED_CATEGORIES, ...products.map((p) => p.category).filter(Boolean)]);
+  // List categories ordered by the clinical sequence, with the 15 standard categories and user custom categories
+  const existingSet = new Set<string>([
+    ...ORDERED_CATEGORIES,
+    ...(customCategories || []),
+    ...products.map((p) => p.category).filter(Boolean),
+  ]);
   const existingCategories = sortCategories(Array.from(existingSet));
 
   const [name, setName] = useState('');
@@ -42,6 +47,18 @@ export default function AddProductModal({
   const [initialNumeroLot, setInitialNumeroLot] = useState('');
   const [initialOrigine, setInitialOrigine] = useState('Inventaire initial');
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (isOpen) {
+      if (defaultCategory) {
+        setSelectedCategory(defaultCategory);
+        setIsCustomCategory(false);
+      } else if (!selectedCategory && existingCategories.length > 0) {
+        setSelectedCategory(existingCategories[0]);
+      }
+      setError('');
+    }
+  }, [isOpen, defaultCategory]);
 
   if (!isOpen) return null;
 
