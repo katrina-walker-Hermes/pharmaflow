@@ -28,6 +28,7 @@ import AddProductModal from '../components/AddProductModal';
 import ResetConfirmModal from '../components/ResetConfirmModal';
 import ExportPdfModal from '../components/ExportPdfModal';
 import JsonBackupModal from '../components/JsonBackupModal';
+import CriticalStockAlerts from '../components/CriticalStockAlerts';
 import { format, parseISO } from 'date-fns';
 import { clsx } from 'clsx';
 import { sortProductsByCategoryAndName } from '../utils/categoryOrder';
@@ -226,6 +227,9 @@ export default function Dashboard() {
           <span className="font-semibold text-sm">{resumeSuccessMessage}</span>
         </div>
       )}
+
+      {/* Global Critical Threshold Alert System & Priority Reorder Queue */}
+      <CriticalStockAlerts />
 
       {/* Cancelled Order Alert Banner with Resume Action */}
       {cancelledOrders.length > 0 && (

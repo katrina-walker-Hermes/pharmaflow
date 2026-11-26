@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { clsx } from 'clsx';
-import { useStore } from '../store';
+import { useStore, getCurrentStock } from '../store';
 import { useAuth } from '../contexts/AuthContext';
 import AddProductModal from './AddProductModal';
 import AddCategoryModal from './AddCategoryModal';
@@ -42,8 +42,13 @@ export default function Layout() {
   const location = useLocation();
   const { user, isSyncing, syncNow, signOutUser, refreshEmailVerification } = useAuth();
 
+  const products = useStore((state) => state.products);
   const orders = useStore((state) => state.orders);
   const cancelledOrdersCount = orders.filter((o) => o.statut === 'annulee').length;
+  const criticalThresholdCount = (Array.isArray(products) ? products : []).filter((p) => {
+    if (!p || !Array.isArray(p.transactions) || p.transactions.length === 0) return false;
+    return getCurrentStock(p) <= (Number(p.stockSecurite) || 0);
+  }).length;
   const bonDangerEntries = useStore((state) => state.bonDangerEntries) || [];
   const missingVidesCount = bonDangerEntries.reduce((acc, curr) => {
     const q = Number(curr.quantite) || 0;
@@ -52,7 +57,13 @@ export default function Layout() {
   }, 0);
 
   const navigation = [
-    { name: 'Tableau de bord', href: '/', icon: LayoutDashboard },
+    {
+      name: 'Tableau de bord',
+      href: '/',
+      icon: LayoutDashboard,
+      badge: criticalThresholdCount > 0 ? `${criticalThresholdCount} alerte${criticalThresholdCount > 1 ? 's' : ''}` : undefined,
+      badgeColor: 'bg-rose-600 text-white font-bold',
+    },
     { 
       name: 'Le Bon Danger', 
       href: '/le-bon-danger', 

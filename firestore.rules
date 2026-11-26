@@ -93,7 +93,8 @@ service cloud.firestore {
       match /private/{docId} {
         allow get: if isValidId(userId) && isValidId(docId) && docId == 'info'
           && isOwner(userId)
-          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+          && (!exists(/databases/$(database)/documents/users/$(userId))
+              || get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid);
         allow list: if false;
 
         allow create: if isValidId(userId) && isValidId(docId) && docId == 'info'
@@ -120,7 +121,8 @@ service cloud.firestore {
       match /workspaces/{workspaceId} {
         allow get: if isValidId(userId) && isValidId(workspaceId) && workspaceId == 'default'
           && isOwner(userId)
-          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+          && (!exists(/databases/$(database)/documents/users/$(userId))
+              || get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid);
         allow list: if false;
 
         allow create: if isValidId(userId) && isValidId(workspaceId) && workspaceId == 'default'
